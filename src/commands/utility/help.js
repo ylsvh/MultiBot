@@ -17,12 +17,15 @@ const categoryNames = {
     automod: "🛡️・AutoMod",
     avatar: "🎨・Avatars",
     backup: "💾・Backups",
+    confession: "💌・Confessions",
     config: "🛡️・Securite",
     economy: "💰・Economie",
     fun: "🎉・Fun",
     games: "🎮・Jeux",
     giveaway: "🎁・Giveaways",
     info: "🔍・Informations",
+    levels: "📈・Level",
+    moderation: "⚔️・Moderation",
     music: "🎵・Musique",
     other: "🔧・Autres",
     owner: "👑・Owner",
@@ -94,6 +97,17 @@ module.exports = {
                     `• Prefix : \`${prefix}\`\n` +
                     `• Commandes : **${totalCommands}**\n` +
                     `• Serveurs : **${client.guilds.cache.size}**`
+                )
+            );
+
+            container.addSeparatorComponents(
+                new SeparatorBuilder().setSpacing(1)
+            );
+
+            container.addTextDisplayComponents(
+                new TextDisplayBuilder().setContent(
+                    `👑 **Développeurs**\n` +
+                    `• <@${config.ownerId}>`
                 )
             );
 
