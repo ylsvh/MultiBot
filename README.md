@@ -47,8 +47,8 @@ Un bot Discord français ultra-complet avec modération avancée, économie, mus
 
 ```bash
 # Cloner le repo
-git clone https://github.com/teammdr1/TheNetwork.git
-cd TheNetwork
+git clone https://github.com/teammdr1/Celestial.git
+cd Celestial
 
 # Installer les dépendances
 npm install
