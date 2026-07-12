@@ -2,12 +2,11 @@ const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentTyp
 const guildConfig = require("../../utils/guildConfig");
 
 const categoryNames = {
-    admin: "⚔️・Moderation",
-    automod: "🛡️・AutoMod",
+    antiraid: "🛡️・AntiRaid",
     avatar: "🎨・Avatars",
     backup: "💾・Backups",
     confession: "💌・Confessions",
-    config: "🛡️・Securite",
+    config: "⚙️・Configuration",
     economy: "💰・Economie",
     fun: "🎉・Fun",
     games: "🎮・Jeux",
