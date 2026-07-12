@@ -13,12 +13,11 @@ const config = require("../../../config.js");
 const guildConfig = require("../../utils/guildConfig");
 
 const categoryNames = {
-    admin: "⚔️・Moderation",
-    automod: "🛡️・AutoMod",
+    antiraid: "🛡️・AntiRaid",
     avatar: "🎨・Avatars",
     backup: "💾・Backups",
     confession: "💌・Confessions",
-    config: "🛡️・Securite",
+    config: "⚙️・Configuration",
     economy: "💰・Economie",
     fun: "🎉・Fun",
     games: "🎮・Jeux",
@@ -40,9 +39,6 @@ module.exports = {
     async execute(client, message) {
         const prefix = guildConfig.get(message.guild.id, "prefix") || "+";
 
-        // ─────────────────────────────
-        // BUILD CATEGORIES
-        // ─────────────────────────────
         const categories = {};
 
         client.commands.forEach(cmd => {
@@ -58,20 +54,12 @@ module.exports = {
         });
 
         const totalCommands = Object.values(categories).flat().length;
-
         const categoryKeys = Object.keys(categories);
 
-        // ─────────────────────────────
-        // HOME CONTAINER
-        // ─────────────────────────────
         function buildHome() {
             const container = new ContainerBuilder()
-                .setAccentColor(0x2B2D31);
-
             container.addTextDisplayComponents(
-                new TextDisplayBuilder().setContent(
-                    "## 🏡 Menu d'aide"
-                )
+                new TextDisplayBuilder().setContent("## 🏡 Menu d'aide")
             );
 
             container.addSeparatorComponents(
@@ -114,22 +102,14 @@ module.exports = {
             return container;
         }
 
-        // ─────────────────────────────
-        // CATEGORY CONTAINER
-        // ─────────────────────────────
         function buildCategory(catName, page = 0) {
             const commands = categories[catName];
             const perPage = 10;
-
             const slice = commands.slice(page * perPage, (page + 1) * perPage);
 
             const container = new ContainerBuilder()
-                .setAccentColor(0xEBFF00);
-
             container.addTextDisplayComponents(
-                new TextDisplayBuilder().setContent(
-                    `## 📂 ${catName}`
-                )
+                new TextDisplayBuilder().setContent(`## 📂 ${catName}`)
             );
 
             container.addSeparatorComponents(
@@ -157,9 +137,6 @@ module.exports = {
             return container;
         }
 
-        // ─────────────────────────────
-        // SELECT MENU
-        // ─────────────────────────────
         const select = new StringSelectMenuBuilder()
             .setCustomId("help_select")
             .setPlaceholder("📂 Choisir une catégorie...")
@@ -173,9 +150,6 @@ module.exports = {
 
         const rowSelect = new ActionRowBuilder().addComponents(select);
 
-        // ─────────────────────────────
-        // NAV BUTTONS
-        // ─────────────────────────────
         const rowNav = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setCustomId("help_home")
@@ -200,9 +174,8 @@ module.exports = {
                 .setStyle(ButtonStyle.Danger)
         );
 
-        // ─────────────────────────────
-        // LINK BUTTON
-        // ─────────────────────────────
+        const URL = `https://discord.com/oauth2/authorize?client_id=${client.user.id}&permissions=8&scope=bot%20applications.commands`;
+
         const rowLink = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setLabel("💬 Support")
@@ -210,17 +183,18 @@ module.exports = {
                 .setURL(config.supportServerInvite)
         );
 
-        // ─────────────────────────────
-        // SEND
-        // ─────────────────────────────
+        const rowInvite = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setLabel("➕ Invite")
+                .setStyle(ButtonStyle.Link)
+                .setURL(URL)
+        );
+
         const msg = await message.channel.send({
-            components: [buildHome(), rowSelect, rowNav, rowLink],
+            components: [buildHome(), rowSelect, rowNav, rowLink, rowInvite],
             flags: MessageFlags.IsComponentsV2,
         });
 
-        // ─────────────────────────────
-        // STATE
-        // ─────────────────────────────
         let currentCategory = null;
         let page = 0;
 
@@ -240,7 +214,6 @@ module.exports = {
                 return i.reply({ content: "❌ Pas ton menu.", ephemeral: true });
             }
 
-            // ───────── SELECT ─────────
             if (i.isStringSelectMenu()) {
                 const index = parseInt(i.values[0]);
                 currentCategory = categoryKeys[index];
@@ -255,11 +228,11 @@ module.exports = {
                         rowSelect,
                         rowNav,
                         rowLink,
+                        rowInvite,
                     ],
                 });
             }
 
-            // ───────── BUTTONS ─────────
             if (i.customId === "help_close") {
                 await i.update({
                     content: "✖ Fermé.",
@@ -276,7 +249,13 @@ module.exports = {
                 rowNav.components[2].setDisabled(true);
 
                 return i.update({
-                    components: [buildHome(), rowSelect, rowNav, rowLink],
+                    components: [
+                        buildHome(),
+                        rowSelect,
+                        rowNav,
+                        rowLink,
+                        rowInvite,
+                    ],
                 });
             }
 
@@ -300,6 +279,7 @@ module.exports = {
                     rowSelect,
                     rowNav,
                     rowLink,
+                    rowInvite,
                 ],
             });
         });
