@@ -30,7 +30,6 @@ function getDefault() {
       joinInterval: 10000,
       disableInvites: true
     },
-    language: 'fr',
     ticketConfig: {
       panelDescription: 'Cliquez sur le bouton ci-dessous pour créer un ticket. Notre équipe vous répondra dans les meilleurs délais.',
       panelColor: '#5865F2',
@@ -54,10 +53,7 @@ function getDefault() {
       moderation: null,
       server: null
     },
-    botOwners: [],
-    levels: {},
-    blacklist: [],
-    xpEnabled: false,
+    botOwners: []
   };
 }
 
