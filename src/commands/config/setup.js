@@ -4,160 +4,247 @@ const {
     TextDisplayBuilder,
     SeparatorBuilder,
     SectionBuilder,
-    ThumbnailBuilder,
     ActionRowBuilder,
     ButtonBuilder,
     ButtonStyle,
     StringSelectMenuBuilder,
+    PermissionFlagsBits
 } = require('discord.js');
+
 const guildConfig = require('../../utils/guildConfig');
 
 module.exports = {
     name: 'setup',
-    description: 'Panel de configuration interactif',
+    description: 'Panel complet de configuration du serveur',
 
     async execute(client, message) {
-        if (!message.member.permissions.has('Administrator')) {
+        if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) {
             return message.reply('❌ Permission requise.');
         }
 
-        let page = 0;
+        let page = 'general';
 
-        function getRoleName(id) {
-            const role = message.guild.roles.cache.get(id);
-            return role ? role.name : 'Rôle supprimé';
-        }
+        const pages = {
+            general: '📌 Général',
+            security: '🛡️ Sécurité',
+            moderation: '⚠️ Modération',
+            tickets: '🎫 Tickets',
+            giveaway: '🎉 Giveaways',
+            logs: '📜 Logs',
+            admin: '👑 Administration'
+        };
 
-        function getContainer(page) {
+        function createContainer() {
             const config = guildConfig.getAll(message.guild.id);
-            const ar = config.antiraidConfig;
 
-            const welcomeChannel = config.welcomeChannelId ? `<#${config.welcomeChannelId}>` : '❌ Non configuré';
-            const logChannel = config.logChannelId ? `<#${config.logChannelId}>` : '❌ Non configuré';
+            const container = new ContainerBuilder()
+                .setAccentColor(0x5865F2);
 
-            const soutienRole = config.soutienRoleId
-                ? getRoleName(config.soutienRoleId)
-                : '❌ Non configuré';
+            container.addTextDisplayComponents(
+                new TextDisplayBuilder()
+                    .setContent(`## ⚙️ Configuration — ${message.guild.name}`)
+            );
 
-            const warnRoles = config.warnRoles?.length > 0
-                ? config.warnRoles.map(id => getRoleName(id)).join(', ')
-                : '❌ Non configuré';
+            container.addSeparatorComponents(
+                new SeparatorBuilder()
+            );
 
-            const container = new ContainerBuilder().setAccentColor(0x49FF02);
-            const iconURL = message.guild.iconURL({ dynamic: true, size: 128 }) || 'https://cdn.discordapp.com/embed/avatars/0.png';
+            let content = '';
 
-            if (page === 0) {
-                container.addSectionComponents(
-                    new SectionBuilder()
-                        .addTextDisplayComponents(
-                            new TextDisplayBuilder().setContent('## ⚙️ Configuration Générale')
-                        )
-                        .setThumbnailAccessory(new ThumbnailBuilder().setURL(iconURL))
-                );
-                container.addSeparatorComponents(new SeparatorBuilder().setSpacing(1).setDivider(true));
-                container.addTextDisplayComponents(
-                    new TextDisplayBuilder().setContent(
-                        `**📌 Paramètres principaux**\n` +
-                        `> **Préfixe :** \`${config.prefix}\`\n` +
-                        `> **Salon bienvenue :** ${welcomeChannel}\n` +
-                        `> **Salon logs :** ${logChannel}\n\n` +
-                        `**🌐 Serveur**\n` +
-                        `> **Backup :** ${config.backupLink || '❌ Non configuré'}\n` +
-                        `> **Description :** ${config.serverDescription ? '✅ Configurée' : '❌ Non configurée'}`
-                    )
-                );
+            if (page === 'general') {
+                content =
+`### 📌 Configuration générale
+
+> **Préfixe :** \`${config.prefix}\`
+> **Salon bienvenue :** ${config.welcomeChannelId ? `<#${config.welcomeChannelId}>` : '❌ Non configuré'}
+> **Salon logs principal :** ${config.logChannelId ? `<#${config.logChannelId}>` : '❌ Non configuré'}
+> **Rôle soutien :** ${config.soutienRoleId ? `<@&${config.soutienRoleId}>` : '❌ Non configuré'}
+> **Statut soutien :** ${config.soutienStatut || '❌ Aucun'}
+
+### 🌐 Serveur
+
+> **Description :** ${config.serverDescription || '❌ Non configurée'}
+> **Backup :** ${config.backupLink || '❌ Aucun'}`;
             }
 
-            if (page === 1) {
-                container.addSectionComponents(
-                    new SectionBuilder()
-                        .addTextDisplayComponents(
-                            new TextDisplayBuilder().setContent('## 🔨 Configuration Modération')
-                        )
-                        .setThumbnailAccessory(new ThumbnailBuilder().setURL(iconURL))
-                );
-                container.addSeparatorComponents(new SeparatorBuilder().setSpacing(1).setDivider(true));
-                container.addTextDisplayComponents(
-                    new TextDisplayBuilder().setContent(
-                        `**👮 Permissions & rôles**\n` +
-                        `> **Rôle soutien :** ${soutienRole}\n` +
-                        `> **Statut soutien :** ${config.soutienStatut || '❌ Non configuré'}\n\n` +
-                        `**🛡️ Sécurité**\n` +
-                        `> **Captcha :** ${config.captchaEnabled ? '✅ Activé' : '❌ Désactivé'}\n\n` +
-                        `**⚠️ Gestion des warns**\n` +
-                        `> **Rôles autorisés :** ${warnRoles}`
-                    )
-                );
+            if (page === 'security') {
+                const ar = config.antiraidConfig;
+
+                content =
+`### 🛡️ Sécurité
+
+> **Anti-Raid :** ${config.antiraidEnabled ? '✅ Activé' : '❌ Désactivé'}
+> **Captcha :** ${config.captchaEnabled ? '✅ Activé' : '❌ Désactivé'}
+
+### 💬 Anti-Spam
+
+> **Limite :** ${ar.spamLimit} messages
+> **Intervalle :** ${ar.spamInterval}ms
+> **Mute :** ${ar.muteDuration} minutes
+
+### 👥 Anti-Join Raid
+
+> **Limite :** ${ar.joinLimit} membres
+> **Intervalle :** ${ar.joinInterval / 1000}s
+
+> **Invitations désactivées :** ${ar.disableInvites ? '✅' : '❌'}`;
             }
 
-            if (page === 2) {
-                container.addSectionComponents(
-                    new SectionBuilder()
-                        .addTextDisplayComponents(
-                            new TextDisplayBuilder().setContent('## 🛡️ Anti-Raid')
-                        )
-                        .setThumbnailAccessory(new ThumbnailBuilder().setURL(iconURL))
-                );
-                container.addSeparatorComponents(new SeparatorBuilder().setSpacing(1).setDivider(true));
-                container.addTextDisplayComponents(
-                    new TextDisplayBuilder().setContent(
-                        `**📊 Protection globale**\n` +
-                        `> **Statut :** ${config.antiraidEnabled ? '✅ Activé' : '❌ Désactivé'}\n\n` +
-                        `**💬 Anti-spam**\n` +
-                        `> **Limite :** ${ar.spamLimit} messages\n` +
-                        `> **Intervalle :** ${ar.spamInterval} ms\n\n` +
-                        `**⚙️ Sanctions**\n` +
-                        `> **Mute :** ${ar.muteDuration} minutes · **Kick :** 2ème violation · **Ban :** 3ème+\n\n` +
-                        `**👥 Anti-raid (joins)**\n` +
-                        `> **Limite :** ${ar.joinLimit} membres\n` +
-                        `> **Intervalle :** ${ar.joinInterval / 1000}s`
-                    )
-                );
+            if (page === 'moderation') {
+                content =
+`### ⚠️ Modération
+
+> **Rôle mute :** ${config.muteRoleId ? `<@&${config.muteRoleId}>` : '❌ Non configuré'}
+
+### Warns
+
+> **Rôles autorisés :** ${
+    config.warnRoles.length
+        ? config.warnRoles.map(id => `<@&${id}>`).join(', ')
+        : '❌ Aucun'
+}`;
+            }
+
+            if (page === 'tickets') {
+                const t = config.ticketConfig;
+
+                content =
+`### 🎫 Tickets
+
+> **Description panel :** ${t.panelDescription}
+
+> **Couleur :** \`${t.panelColor}\`
+> **Salon logs :** ${t.logChannelId ? `<#${t.logChannelId}>` : '❌ Aucun'}
+> **Tickets créés :** ${t.ticketCount}
+
+### Catégories
+
+${
+    t.categories.length
+        ? t.categories.map(c => `> ${c.name || 'Sans nom'}`).join('\n')
+        : '> ❌ Aucune catégorie'
+}`;
+            }
+
+            if (page === 'giveaway') {
+                const g = config.giveawayConfig;
+
+                content =
+`### 🎉 Giveaways
+
+> **Salon par défaut :** ${g.defaultChannelId ? `<#${g.defaultChannelId}>` : '❌ Aucun'}
+> **Gagnants par défaut :** ${g.defaultWinners}
+> **Couleur :** \`${g.defaultColor}\`
+
+### Gestionnaires
+
+${
+    g.managerRoles.length
+        ? g.managerRoles.map(id => `> <@&${id}>`).join('\n')
+        : '> ❌ Aucun rôle'
+}`;
+            }
+
+            if (page === 'logs') {
+                const l = config.logChannels;
+
+                content =
+`### 📜 Logs
+
+> 👤 Membres : ${l.member ? `<#${l.member}>` : '❌'}
+> 💬 Messages : ${l.messages ? `<#${l.messages}>` : '❌'}
+> 🎤 Vocal : ${l.voice ? `<#${l.voice}>` : '❌'}
+> 🎭 Rôles : ${l.roles ? `<#${l.roles}>` : '❌'}
+> 🚀 Boost : ${l.boost ? `<#${l.boost}>` : '❌'}
+> 📁 Salons : ${l.channels ? `<#${l.channels}>` : '❌'}
+> 🔨 Modération : ${l.moderation ? `<#${l.moderation}>` : '❌'}
+> 🏠 Serveur : ${l.server ? `<#${l.server}>` : '❌'}`;
+            }
+
+            if (page === 'admin') {
+                content =
+`### 👑 Administration
+
+### Owners Bot
+
+${
+    config.botOwners.length
+        ? config.botOwners.map(id => `> <@${id}>`).join('\n')
+        : '> ❌ Aucun owner configuré'
+}`;
             }
 
             container.addTextDisplayComponents(
-                new TextDisplayBuilder().setContent(`-# Page ${page + 1}/3 · ${message.guild.name}`)
+                new TextDisplayBuilder()
+                    .setContent(content)
+            );
+
+            container.addSeparatorComponents(
+                new SeparatorBuilder()
+            );
+
+            container.addTextDisplayComponents(
+                new TextDisplayBuilder()
+                    .setContent(`-# ${pages[page]} · Configuration`)
             );
 
             return container;
         }
 
-        function getActionRows() {
-            const buttons = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('setup_prev').setLabel('⬅️').setStyle(ButtonStyle.Secondary),
-                new ButtonBuilder().setCustomId('setup_next').setLabel('➡️').setStyle(ButtonStyle.Secondary)
-            );
-            const menu = new ActionRowBuilder().addComponents(
-                new StringSelectMenuBuilder()
-                    .setCustomId('setup_select')
-                    .setPlaceholder('Aller à une page...')
-                    .addOptions([
-                        { label: 'Général', value: '0' },
-                        { label: 'Modération', value: '1' },
-                        { label: 'Anti-Raid', value: '2' }
-                    ])
-            );
-            return [buttons, menu];
+        function createComponents() {
+            return [
+                new ActionRowBuilder().addComponents(
+                    new StringSelectMenuBuilder()
+                        .setCustomId('setup_menu')
+                        .setPlaceholder('Choisir une catégorie')
+                        .addOptions(
+                            Object.entries(pages).map(([value, label]) => ({
+                                label: label.replace(/^[^ ]+ /, ''),
+                                value,
+                                emoji: label.split(' ')[0]
+                            }))
+                        )
+                ),
+
+                new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId('setup_refresh')
+                        .setLabel('Actualiser')
+                        .setEmoji('🔄')
+                        .setStyle(ButtonStyle.Secondary)
+                )
+            ];
         }
 
         const msg = await message.channel.send({
-            components: [getContainer(page), ...getActionRows()],
+            components: [
+                createContainer(),
+                ...createComponents()
+            ],
             flags: MessageFlags.IsComponentsV2
         });
 
-        const collector = msg.createMessageComponentCollector({ time: 300000 });
+        const collector = msg.createMessageComponentCollector({
+            time: 300000
+        });
 
         collector.on('collect', async interaction => {
             if (interaction.user.id !== message.author.id) {
-                return interaction.reply({ content: '❌ Pas pour toi', ephemeral: true });
+                return interaction.reply({
+                    content: '❌ Ce panneau ne vous appartient pas.',
+                    flags: MessageFlags.Ephemeral
+                });
             }
 
-            if (interaction.customId === 'setup_prev') page = page > 0 ? page - 1 : 2;
-            if (interaction.customId === 'setup_next') page = page < 2 ? page + 1 : 0;
-            if (interaction.customId === 'setup_select') page = parseInt(interaction.values[0]);
+            if (interaction.customId === 'setup_menu') {
+                page = interaction.values[0];
+            }
 
             await interaction.update({
-                components: [getContainer(page), ...getActionRows()],
+                components: [
+                    createContainer(),
+                    ...createComponents()
+                ],
                 flags: MessageFlags.IsComponentsV2
             });
         });
