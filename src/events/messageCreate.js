@@ -16,7 +16,13 @@ module.exports = {
     if (!command) return;
 
     try {
-      command.execute(client, message, args);
+      if (typeof command.execute === 'function') {
+        command.execute(client, message, args);
+      } else if (typeof command.run === 'function') {
+        command.run(client, message, args);
+      } else {
+        throw new Error(`La commande ${commandName} n\'a pas de méthode exécutable.`);
+      }
     } catch (err) {
       console.error(err);
       message.reply('❌ Erreur pendant l\'exécution de la commande.');
