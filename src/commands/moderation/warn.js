@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const guildConfig = require('../../utils/guildConfig');
 
-const warningsFilePath = path.join(__dirname, '../../data/warnings.json');
+const warningsFilePath = path.join(__dirname, '../../../data/warnings.json');
 
 function loadWarnings() {
   if (!fs.existsSync(warningsFilePath)) return {};
