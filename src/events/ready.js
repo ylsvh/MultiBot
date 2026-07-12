@@ -6,7 +6,8 @@ const guildConfig = require('../utils/guildConfig');
 const LOG_FILE = path.join(__dirname, '../../role_logs.txt');
 
 const statuses = [
-  "+help"
+  "+help",
+  "ton-autre-status"
 ];
 let currentStatus = 0;
 
@@ -64,7 +65,7 @@ async function fullScan(client) {
 }
 
 module.exports = {
-  name: 'ready',
+  name: 'clientReady',
   once: true,
   async execute(client) {
     logAction(`Bot prêt (${client.user.tag}) — ${client.guilds.cache.size} serveur(s)`);
