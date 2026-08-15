@@ -47,7 +47,7 @@ Un bot Discord français ultra-complet avec modération avancée, économie, mus
 
 ```bash
 # Cloner le repo
-git clone https://github.com/teammdr1/Celestial.git
+git clone https://github.com/ylsvh/Celestial.git
 cd Celestial
 
 # Installer les dépendances
