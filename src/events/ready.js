@@ -31,7 +31,7 @@ function updateStatus(client) {
       {
         name: status,
         type: ActivityType.Streaming,
-        url: 'https://www.twitch.tv/xbloxet'
+        url: 'https://www.twitch.tv/ton-url-twitch'
       }
     ],
     status: 'online'
