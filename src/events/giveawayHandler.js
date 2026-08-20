@@ -14,7 +14,6 @@ const {
 const guildConfig = require('../utils/guildConfig');
 const gw = require('../utils/giveawayManager');
 
-
 function parseRoleInput(str, guild) {
     if (!str) return null;
     const mention = str.match(/^<@&(\d+)>$/);
@@ -97,7 +96,7 @@ module.exports = {
         if (!interaction.guild) return;
 
         const { customId } = interaction;
-        
+
         if (interaction.isButton() && customId === 'gw_enter') {
             const giveaway = gw.get(interaction.message.id);
             if (!giveaway) return interaction.reply({ content: '❌ Ce giveaway est introuvable.', ephemeral: true });
@@ -131,7 +130,7 @@ module.exports = {
             await interaction.followUp({ content: msg, ephemeral: true });
             return;
         }
-        
+
         if (interaction.isButton() && customId.startsWith('gw_set_')) {
             const draft = gw.getDraft(interaction.guild.id, interaction.user.id);
             if (!draft) return interaction.reply({ content: '❌ Aucun wizard de giveaway actif pour vous.', ephemeral: true });
