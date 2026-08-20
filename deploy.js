@@ -41,4 +41,4 @@ function getFiles(dir) {
   );
 
   console.log(commands.length);
-})();
+})();                                                                   
