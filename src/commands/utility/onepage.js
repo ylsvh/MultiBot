@@ -17,6 +17,7 @@ const categoryNames = {
     music: "🎵・Musique",
     other: "🔧・Autres",
     owner: "👑・Owner",
+    points: "⭐・Points",
     roblox: "🎮・Roblox",
     utility: "🛠️・Utilitaires",
 };
@@ -26,6 +27,7 @@ module.exports = {
     description: "Affiche toutes les commandes",
 
     async execute(client, message) {
+        await message.channel.sendTyping();
         const prefix = guildConfig.get(message.guild.id, "prefix") || "+";
 
         const categories = {};
