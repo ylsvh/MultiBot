@@ -1,32 +1,58 @@
-const {
-    MessageFlags,
-    ContainerBuilder,
-    TextDisplayBuilder,
-    SeparatorBuilder,
-    SectionBuilder,
-    ThumbnailBuilder,
-} = require('discord.js');
-
 const fs = require('fs');
 const path = require('path');
-const { getAutomod, isWhitelisted } = require('../utils/automodConfig');
-const { sendLog } = require('../utils/logHelper');
 
-// ─── Regex ───
-const INVITE_REGEX = /(?:https?:\/\/)?(?:www\.)?(?:discord(?:app)?\.(?:gg|com\/invite)\/[a-zA-Z0-9-]+)/gi;
-const URL_REGEX = /(?:https?:\/\/|www\.)[^\s<>\"]{2,}/gi;
+const {
+    getAutomod,
+    isWhitelisted
+} = require('../utils/automodConfig');
 
-// ─── Warnings ───
-const WARNINGS_FILE = path.join(__dirname, '../../data/warnings.json');
+const warningsFile = path.join(
+    __dirname,
+    '../../data/warnings.json'
+);
 
-function addWarning(guildId, userId, reason) {
-    let data = {};
-    if (fs.existsSync(WARNINGS_FILE)) {
-        try { data = JSON.parse(fs.readFileSync(WARNINGS_FILE, 'utf8')); } catch {}
+const spamCache = new Map();
+const mentionCache = new Map();
+
+const INVITE_REGEX =
+    /(?:https?:\/\/)?(?:www\.)?(?:discord(?:app)?\.(?:gg|com\/invite)\/[a-zA-Z0-9-]+)/i;
+
+const URL_REGEX =
+    /(?:https?:\/\/|www\.)[^\s<>\"]{2,}/i;
+
+function loadWarnings() {
+    if (!fs.existsSync(warningsFile)) {
+        return {};
     }
 
-    if (!data[guildId]) data[guildId] = {};
-    if (!data[guildId][userId]) data[guildId][userId] = [];
+    try {
+        return JSON.parse(
+            fs.readFileSync(warningsFile, 'utf8')
+        );
+    } catch {
+        return {};
+    }
+}
+
+function saveWarnings(data) {
+    try {
+        fs.writeFileSync(
+            warningsFile,
+            JSON.stringify(data, null, 2)
+        );
+    } catch {}
+}
+
+function addWarning(guildId, userId, reason) {
+    const data = loadWarnings();
+
+    if (!data[guildId]) {
+        data[guildId] = {};
+    }
+
+    if (!data[guildId][userId]) {
+        data[guildId][userId] = [];
+    }
 
     data[guildId][userId].push({
         reason,
@@ -34,182 +60,378 @@ function addWarning(guildId, userId, reason) {
         timestamp: Date.now()
     });
 
-    try {
-        fs.writeFileSync(WARNINGS_FILE, JSON.stringify(data, null, 2));
-    } catch {}
+    saveWarnings(data);
 }
 
-// ─── Labels ───
-const ACTION_COLORS = {
-    delete: 0x99AAB5,
-    warn:   0xFEE75C,
-    mute:   0xF04747,
-    kick:   0xED4245,
-    ban:    0x36393F
-};
-
-const ACTION_LABELS = {
-    delete: '🗑️ Message supprimé',
-    warn:   '⚠️ Averti',
-    mute:   '🔇 Muté 10 min',
-    kick:   '👢 Expulsé',
-    ban:    '🔨 Banni'
-};
-
-const MODULE_LABELS = {
-    antiinvite: '🔗 Anti-Invitations',
-    antilink:   '🌐 Anti-Liens',
-    antiwords:  '🚫 Anti-Mots'
-};
-
-// ─── Action principale ───
-async function takeAction(message, mod, moduleName, reason) {
-    const { action } = mod;
+async function takeAction(message, module, moduleName, reason) {
+    const action = module.action;
     const member = message.member;
     const guild = message.guild;
 
-    try { await message.delete(); } catch {}
+    try {
+        await message.delete();
+    } catch {}
 
-    if (member) {
-        if (action === 'warn') {
-            addWarning(guild.id, member.id, `AutoMod (${moduleName}): ${reason}`);
-            try { await member.send(`⚠️ Avertissement sur **${guild.name}**\n**Raison :** ${reason}`); } catch {}
-        }
+    if (!member) return;
 
-        else if (action === 'mute') {
-            if (member.moderatable) {
-                try {
-                    await member.timeout(10 * 60 * 1000, `AutoMod: ${reason}`);
-                    try { await member.send(`🔇 Muté 10 min sur **${guild.name}**\n**Raison :** ${reason}`); } catch {}
-                } catch {}
-            }
-        }
+    if (action === 'warn') {
+        addWarning(
+            guild.id,
+            member.id,
+            `AutoMod (${moduleName}) : ${reason}`
+        );
 
-        else if (action === 'kick') {
-            if (member.kickable) {
-                try { await member.send(`👢 Expulsé de **${guild.name}**\n**Raison :** ${reason}`); } catch {}
-                try { await member.kick(`AutoMod: ${reason}`); } catch {}
-            }
-        }
+        try {
+            await member.send(
+                `⚠️ Vous avez été averti sur **${guild.name}**.\n` +
+                `**Raison :** ${reason}`
+            );
+        } catch {}
 
-        else if (action === 'ban') {
-            if (member.bannable) {
-                try { await member.send(`🔨 Banni de **${guild.name}**\n**Raison :** ${reason}`); } catch {}
-                try {
-                    await guild.members.ban(member.id, {
-                        reason: `AutoMod: ${reason}`,
-                        deleteMessageSeconds: 60
-                    });
-                } catch {}
-            }
-        }
+        return;
     }
 
-    const container = new ContainerBuilder().setAccentColor(ACTION_COLORS[action] || 0x99AAB5);
+    if (action === 'mute') {
+        if (!member.moderatable) return;
 
-    container.addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(`## 🛡️ AutoMod — ${MODULE_LABELS[moduleName]}`)
-    );
+        try {
+            await member.timeout(
+                10 * 60 * 1000,
+                `AutoMod : ${reason}`
+            );
 
-    container.addSeparatorComponents(
-        new SeparatorBuilder().setSpacing(1).setDivider(true)
-    );
+            try {
+                await member.send(
+                    `🔇 Vous avez été muté pendant 10 minutes sur **${guild.name}**.\n` +
+                    `**Raison :** ${reason}`
+                );
+            } catch {}
+        } catch {}
 
-    const preview = (message.content || '*Vide*').slice(0, 400);
-
-    const section = new SectionBuilder();
-    section.addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(
-            `**👤 Membre :** ${message.author.tag} \`${message.author.id}\`\n` +
-            `**📌 Salon :** <#${message.channel.id}>\n` +
-            `**⚡ Action :** ${ACTION_LABELS[action] || action}\n` +
-            `**🔍 Raison :** ${reason}\n\n` +
-            `**📝 Message :**\n> ${preview}`
-        )
-    );
-
-    section.setThumbnailAccessory(
-        new ThumbnailBuilder().setURL(
-            message.author.displayAvatarURL({ dynamic: true })
-        )
-    );
-
-    container.addSectionComponents(section);
-
-    container.addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(
-            `-# <t:${Math.floor(Date.now() / 1000)}:F>`
-        )
-    );
-
-    if (mod.logChannelId) {
-        const logCh = guild.channels.cache.get(mod.logChannelId);
-        if (logCh) {
-            logCh.send({
-                components: [container],
-                flags: MessageFlags.IsComponentsV2
-            }).catch(() => {});
-        }
+        return;
     }
 
-    await sendLog(guild, 'moderation', container);
+    if (action === 'kick') {
+        if (!member.kickable) return;
+
+        try {
+            await member.send(
+                `👢 Vous avez été expulsé de **${guild.name}**.\n` +
+                `**Raison :** ${reason}`
+            );
+        } catch {}
+
+        try {
+            await member.kick(
+                `AutoMod : ${reason}`
+            );
+        } catch {}
+
+        return;
+    }
+
+    if (action === 'ban') {
+        if (!member.bannable) return;
+
+        try {
+            await member.send(
+                `🔨 Vous avez été banni de **${guild.name}**.\n` +
+                `**Raison :** ${reason}`
+            );
+        } catch {}
+
+        try {
+            await guild.members.ban(
+                member.id,
+                {
+                    reason: `AutoMod : ${reason}`,
+                    deleteMessageSeconds: 60
+                }
+            );
+        } catch {}
+    }
 }
 
-// ─── Handler ───
+function checkSpam(message, module) {
+    const key = `${message.guild.id}:${message.author.id}`;
+
+    let data = spamCache.get(key);
+
+    if (!data) {
+        data = {
+            messages: [],
+            lastContent: null,
+            duplicates: 0
+        };
+
+        spamCache.set(key, data);
+    }
+
+    const now = Date.now();
+
+    data.messages = data.messages.filter(
+        timestamp => now - timestamp <= module.interval
+    );
+
+    data.messages.push(now);
+
+    if (data.lastContent === message.content) {
+        data.duplicates++;
+    } else {
+        data.duplicates = 1;
+        data.lastContent = message.content;
+    }
+
+    if (
+        data.messages.length >= module.maxMessages
+    ) {
+        spamCache.delete(key);
+
+        return 'Envoi massif de messages détecté';
+    }
+
+    if (
+        data.duplicates >= module.duplicateLimit
+    ) {
+        spamCache.delete(key);
+
+        return 'Messages identiques répétés';
+    }
+
+    setTimeout(() => {
+        const current = spamCache.get(key);
+
+        if (current) {
+            current.messages = current.messages.filter(
+                timestamp =>
+                    Date.now() - timestamp <= module.interval
+            );
+
+            if (!current.messages.length) {
+                spamCache.delete(key);
+            }
+        }
+    }, module.interval + 100);
+
+    return null;
+}
+
+function checkMentions(message, module) {
+    const users = message.mentions.users.size;
+    const roles = message.mentions.roles.size;
+    const total = users + roles;
+
+    if (message.mentions.everyone) {
+        return 'Mention @everyone/@here détectée';
+    }
+
+    if (users >= module.maxUsers) {
+        return `Trop de membres mentionnés (${users})`;
+    }
+
+    if (roles >= module.maxRoles) {
+        return `Trop de rôles mentionnés (${roles})`;
+    }
+
+    if (total >= module.maxTotal) {
+        return `Trop de mentions (${total})`;
+    }
+
+    if (message.mentions.users.size === 0) {
+        return null;
+    }
+
+    const now = Date.now();
+
+    for (const userId of message.mentions.users.keys()) {
+        const key =
+            `${message.guild.id}:${message.author.id}:${userId}`;
+
+        let timestamps =
+            mentionCache.get(key) || [];
+
+        timestamps = timestamps.filter(
+            timestamp =>
+                now - timestamp <= module.repeatInterval
+        );
+
+        timestamps.push(now);
+
+        mentionCache.set(key, timestamps);
+
+        if (timestamps.length >= module.repeatLimit) {
+            mentionCache.delete(key);
+
+            return `Spam de mentions vers <@${userId}>`;
+        }
+
+        setTimeout(() => {
+            const current = mentionCache.get(key);
+
+            if (!current) return;
+
+            const filtered = current.filter(
+                timestamp =>
+                    Date.now() - timestamp <= module.repeatInterval
+            );
+
+            if (filtered.length) {
+                mentionCache.set(key, filtered);
+            } else {
+                mentionCache.delete(key);
+            }
+        }, module.repeatInterval + 100);
+    }
+
+    return null;
+}
+
+function checkCaps(content, module) {
+    const letters = content.match(/[A-Za-zÀ-ÖØ-öø-ÿ]/g);
+
+    if (!letters || letters.length < module.minimumLength) {
+        return false;
+    }
+
+    const uppercase = letters.filter(
+        char => char === char.toUpperCase()
+    ).length;
+
+    const percentage =
+        (uppercase / letters.length) * 100;
+
+    return percentage >= module.percentage;
+}
+
 module.exports = {
     name: 'messageCreate',
 
-    async execute(message, client) {
-        if (!message.guild || message.author?.bot) return;
-        if (!message.content?.trim()) return;
+    async execute(message) {
+        if (!message.guild) return;
+        if (message.author?.bot) return;
         if (!message.member) return;
+        if (!message.content?.trim()) return;
 
-        const automod = getAutomod(message.guild.id);
+        const automod =
+            getAutomod(message.guild.id);
+
         const content = message.content;
 
-        // 1. Anti-invite
-        const inv = automod.antiinvite;
-        if (inv?.enabled && !isWhitelisted(message, inv)) {
-            if (INVITE_REGEX.test(content)) {
-                await takeAction(message, inv, 'antiinvite', 'Invitation Discord détectée');
-                return;
-            }
+        const antiinvite = automod.antiinvite;
+
+        if (
+            antiinvite.enabled &&
+            !isWhitelisted(message, antiinvite) &&
+            INVITE_REGEX.test(content)
+        ) {
+            await takeAction(
+                message,
+                antiinvite,
+                'antiinvite',
+                'Invitation Discord détectée'
+            );
+
+            return;
         }
 
-        // 2. Anti-link
-        const al = automod.antilink;
-        if (al?.enabled && !isWhitelisted(message, al)) {
-            if (URL_REGEX.test(content)) {
-                await takeAction(message, al, 'antilink', 'Lien URL détecté');
-                return;
-            }
+        const antilink = automod.antilink;
+
+        if (
+            antilink.enabled &&
+            !isWhitelisted(message, antilink) &&
+            URL_REGEX.test(content)
+        ) {
+            await takeAction(
+                message,
+                antilink,
+                'antilink',
+                'Lien URL détecté'
+            );
+
+            return;
         }
-        const aw = automod.antiwords;
-        if (aw?.enabled && aw.words?.length && !isWhitelisted(message, aw)) {
 
-            const normalize = (t) =>
-                (t || "")
-                    .toLowerCase()
-                    .normalize("NFD")
-                    .replace(/[\u0300-\u036f]/g, "")
-                    .replace(/[^a-z0-9]+/g, " ")
-                    .trim();
+        const antiwords = automod.antiwords;
 
-            const messageWords = new Set(normalize(content).split(" ").filter(Boolean));
+        if (
+            antiwords.enabled &&
+            antiwords.words.length &&
+            !isWhitelisted(message, antiwords)
+        ) {
+            const lower =
+                content.toLowerCase();
 
-            const found = aw.words.find(w => {
-                const word = normalize(w);
-                return messageWords.has(word);
-            });
+            const found =
+                antiwords.words.find(word =>
+                    lower.includes(word.toLowerCase())
+                );
 
             if (found) {
                 await takeAction(
                     message,
-                    aw,
+                    antiwords,
                     'antiwords',
-                    `Mot banni : "${found}"`
+                    `Mot interdit détecté : ${found}`
                 );
+
                 return;
+            }
+        }
+
+        const antispam = automod.antispam;
+
+        if (
+            antispam.enabled &&
+            !isWhitelisted(message, antispam)
+        ) {
+            const reason =
+                checkSpam(message, antispam);
+
+            if (reason) {
+                await takeAction(
+                    message,
+                    antispam,
+                    'antispam',
+                    reason
+                );
+
+                return;
+            }
+        }
+
+        const anticaps = automod.anticaps;
+
+        if (
+            anticaps.enabled &&
+            !isWhitelisted(message, anticaps) &&
+            checkCaps(content, anticaps)
+        ) {
+            await takeAction(
+                message,
+                anticaps,
+                'anticaps',
+                'Message excessivement en majuscules'
+            );
+
+            return;
+        }
+
+        const antimention = automod.antimention;
+
+        if (
+            antimention.enabled &&
+            !isWhitelisted(message, antimention)
+        ) {
+            const reason =
+                checkMentions(message, antimention);
+
+            if (reason) {
+                await takeAction(
+                    message,
+                    antimention,
+                    'antimention',
+                    reason
+                );
             }
         }
     }
