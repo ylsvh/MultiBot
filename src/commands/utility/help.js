@@ -13,21 +13,24 @@ const config = require("../../../config.js");
 const guildConfig = require("../../utils/guildConfig");
 
 const categoryNames = {
-    antiraid: "🛡️・AntiRaid",
+    automod: "🛡️・Automod",
     avatar: "🎨・Avatars",
     backup: "💾・Backups",
     confession: "💌・Confessions",
-    config: "⚙️・Configuration",
+    guildconfig: "⚙️・Guild Config",
     economy: "💰・Economie",
     fun: "🎉・Fun",
     games: "🎮・Jeux",
     giveaway: "🎁・Giveaways",
+    honeypot: "🐝・Honeypot",
     info: "🔍・Informations",
     levels: "📈・Level",
     moderation: "⚔️・Moderation",
     music: "🎵・Musique",
     other: "🔧・Autres",
     owner: "👑・Owner",
+    pfps: "🖼️・PFPs",
+    points: "⭐・Points",
     roblox: "🎮・Roblox",
     utility: "🛠️・Utilitaires",
 };
@@ -37,6 +40,7 @@ module.exports = {
     description: "Menu d'aide (Components V2)",
 
     async execute(client, message) {
+        await message.channel.sendTyping();
         const prefix = guildConfig.get(message.guild.id, "prefix") || "+";
 
         const categories = {};
