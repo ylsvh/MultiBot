@@ -12,16 +12,22 @@ function ensureDir() {
 function getDefault() {
   return {
     prefix: '+',
+
     welcomeChannelId: null,
     logChannelId: null,
+
     soutienRoleId: null,
     soutienStatut: null,
+
     captchaEnabled: false,
     antiraidEnabled: false,
+
     muteRoleId: null,
     warnRoles: [],
+
     backupLink: null,
     serverDescription: null,
+
     antiraidConfig: {
       spamLimit: 5,
       spamInterval: 2000,
@@ -30,6 +36,7 @@ function getDefault() {
       joinInterval: 10000,
       disableInvites: true
     },
+
     ticketConfig: {
       panelDescription: 'Cliquez sur le bouton ci-dessous pour créer un ticket. Notre équipe vous répondra dans les meilleurs délais.',
       panelColor: '#5865F2',
@@ -37,12 +44,24 @@ function getDefault() {
       ticketCount: 0,
       categories: []
     },
+
     giveawayConfig: {
       defaultColor: '#F1C40F',
       defaultChannelId: null,
       defaultWinners: 1,
       managerRoles: []
     },
+
+    pointsConfig: {
+      messagePoints: 1,
+      commandPoints: 2,
+      voicePoints: 1,
+      crownRoleId: null,
+      crownSchedule: null
+    },
+
+    points: {},
+
     logChannels: {
       member: null,
       messages: null,
@@ -50,32 +69,77 @@ function getDefault() {
       roles: null,
       boost: null,
       channels: null,
-      moderation: null,
+      emojis: null,
+      webhooks: null,
+      automod: null,
+      raid: null,
       server: null
     },
+
     botOwners: []
   };
 }
 
 function getAll(guildId) {
   ensureDir();
+
   const filePath = path.join(GUILDS_DIR, `${guildId}.json`);
-  if (!fs.existsSync(filePath)) return getDefault();
+
+  if (!fs.existsSync(filePath)) {
+    return getDefault();
+  }
+
   try {
     const saved = JSON.parse(fs.readFileSync(filePath, 'utf8'));
     const defaults = getDefault();
+
     return {
       ...defaults,
       ...saved,
-      antiraidConfig: { ...defaults.antiraidConfig, ...(saved.antiraidConfig || {}) },
-      ticketConfig: { ...defaults.ticketConfig, ...(saved.ticketConfig || {}), categories: (saved.ticketConfig?.categories || []) },
-      giveawayConfig: { ...defaults.giveawayConfig, ...(saved.giveawayConfig || {}) },
-      logChannels: { ...defaults.logChannels, ...(saved.logChannels || {}) },
+
+      antiraidConfig: {
+        ...defaults.antiraidConfig,
+        ...(saved.antiraidConfig || {})
+      },
+
+      ticketConfig: {
+        ...defaults.ticketConfig,
+        ...(saved.ticketConfig || {}),
+        categories: saved.ticketConfig?.categories || []
+      },
+
+      giveawayConfig: {
+        ...defaults.giveawayConfig,
+        ...(saved.giveawayConfig || {})
+      },
+
+      pointsConfig: {
+        ...defaults.pointsConfig,
+        ...(saved.pointsConfig || {})
+      },
+
+      points: saved.points || {},
+
+      logChannels: {
+        ...defaults.logChannels,
+        ...(saved.logChannels || {})
+      },
+
       botOwners: saved.botOwners || []
     };
-  } catch {
+  } catch (error) {
+    console.error(`[GUILD CONFIG] Erreur lecture ${guildId}:`, error);
     return getDefault();
   }
+}
+
+function save(guildId, config) {
+  ensureDir();
+
+  fs.writeFileSync(
+    path.join(GUILDS_DIR, `${guildId}.json`),
+    JSON.stringify(config, null, 2)
+  );
 }
 
 function get(guildId, key) {
@@ -83,29 +147,63 @@ function get(guildId, key) {
 }
 
 function set(guildId, key, value) {
-  ensureDir();
   const config = getAll(guildId);
+
   config[key] = value;
-  fs.writeFileSync(path.join(GUILDS_DIR, `${guildId}.json`), JSON.stringify(config, null, 2));
+
+  save(guildId, config);
 }
 
 function setMany(guildId, values) {
-  ensureDir();
   const config = getAll(guildId);
+
   Object.assign(config, values);
-  fs.writeFileSync(path.join(GUILDS_DIR, `${guildId}.json`), JSON.stringify(config, null, 2));
+
+  save(guildId, config);
 }
 
 function setNested(guildId, key, subKey, value) {
-  ensureDir();
   const config = getAll(guildId);
-  if (!config[key]) config[key] = {};
+
+  if (!config[key] || typeof config[key] !== 'object') {
+    config[key] = {};
+  }
+
   config[key][subKey] = value;
-  fs.writeFileSync(path.join(GUILDS_DIR, `${guildId}.json`), JSON.stringify(config, null, 2));
+
+  save(guildId, config);
+}
+
+function getLogChannel(guildId, type) {
+  return getAll(guildId).logChannels?.[type] || null;
+}
+
+function setLogChannel(guildId, type, channelId) {
+  const config = getAll(guildId);
+
+  if (!Object.prototype.hasOwnProperty.call(config.logChannels, type)) {
+    return false;
+  }
+
+  config.logChannels[type] = channelId;
+
+  save(guildId, config);
+
+  return true;
 }
 
 function isBotOwner(guildId, userId) {
   return (getAll(guildId).botOwners || []).includes(userId);
 }
 
-module.exports = { get, set, setMany, setNested, getAll, isBotOwner };
+module.exports = {
+  get,
+  set,
+  setMany,
+  setNested,
+  getAll,
+  save,
+  getLogChannel,
+  setLogChannel,
+  isBotOwner
+};
