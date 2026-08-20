@@ -1,4 +1,3 @@
-// src/commands/speed.js
 const {
     MessageFlags,
     ContainerBuilder,
