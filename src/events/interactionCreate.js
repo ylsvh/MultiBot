@@ -1,5 +1,3 @@
-// Gestion des slash commandes et des boutons de la commande question.js
-
 const {
     ModalBuilder,
     TextInputBuilder,
@@ -30,7 +28,9 @@ function saveData(data) {
 module.exports = {
     name: "interactionCreate",
     once: false,
+
     async execute(interaction, client) {
+
         if (interaction.isChatInputCommand()) {
             const command = client.slashCommands.get(interaction.commandName);
             if (!command) return;
@@ -39,17 +39,22 @@ module.exports = {
                 await command.execute(interaction, client);
             } catch (err) {
                 console.error(err);
-                if (!interaction.replied) {
+
+                if (!interaction.replied && !interaction.deferred) {
                     await interaction.reply({
                         content: "Une erreur est survenue.",
                         flags: MessageFlags.Ephemeral
-                    });
+                    }).catch(() => {});
                 }
             }
+
             return;
         }
+
         if (!interaction.guild) return;
+
         const data = loadData();
+
         if (!data[interaction.guild.id]) {
             data[interaction.guild.id] = {
                 channel: null,
@@ -59,10 +64,14 @@ module.exports = {
                 correct: null,
                 answered: []
             };
+
             saveData(data);
         }
+
         const question = data[interaction.guild.id];
+
         if (interaction.isButton()) {
+
             if (interaction.customId === "question_channel") {
                 return interaction.reply({
                     components: [
@@ -75,44 +84,66 @@ module.exports = {
                     flags: MessageFlags.Ephemeral
                 });
             }
+
             if ([
                 "question_title",
                 "question_description",
                 "question_answer_add",
                 "question_correct"
             ].includes(interaction.customId)) {
+
                 const modal = new ModalBuilder()
-                    .setCustomId(interaction.customId + "_modal")
+                    .setCustomId(`${interaction.customId}_modal`)
                     .setTitle("Configuration question");
+
                 const input = new TextInputBuilder()
                     .setCustomId("value")
                     .setLabel(
-                        interaction.customId === "question_title" ? "Question" :
-                        interaction.customId === "question_description" ? "Description" :
-                        interaction.customId === "question_answer_add" ? "Réponse" :
-                        "Bonne réponse"
+                        interaction.customId === "question_title"
+                            ? "Question"
+                            : interaction.customId === "question_description"
+                                ? "Description"
+                                : interaction.customId === "question_answer_add"
+                                    ? "Réponse"
+                                    : "Bonne réponse"
                     )
                     .setStyle(TextInputStyle.Paragraph)
-                    .setRequired(interaction.customId !== "question_description");
+                    .setRequired(
+                        interaction.customId !== "question_description"
+                    );
+
                 modal.addComponents(
                     new ActionRowBuilder().addComponents(input)
                 );
+
                 return interaction.showModal(modal);
             }
+
             if (interaction.customId === "question_publish") {
-                if (!question.channel || !question.title || !question.correct) {
+
+                if (
+                    !question.channel ||
+                    !question.title ||
+                    !question.correct
+                ) {
                     return interaction.reply({
                         content: "❌ Configuration incomplète.",
                         flags: MessageFlags.Ephemeral
                     });
                 }
-                const channel = interaction.guild.channels.cache.get(question.channel);
+
+                const channel =
+                    interaction.guild.channels.cache.get(
+                        question.channel
+                    );
+
                 if (!channel) {
                     return interaction.reply({
                         content: "❌ Salon introuvable.",
                         flags: MessageFlags.Ephemeral
                     });
                 }
+
                 const container = new ContainerBuilder()
                     .addTextDisplayComponents(
                         new TextDisplayBuilder()
@@ -120,9 +151,11 @@ module.exports = {
 `# ❓ Question du jour
 
 ${question.title}
+
 ${question.description ?? ""}`
                             )
                     );
+
                 const button = new ActionRowBuilder()
                     .addComponents(
                         new ButtonBuilder()
@@ -130,17 +163,25 @@ ${question.description ?? ""}`
                             .setLabel("Répondre")
                             .setStyle(ButtonStyle.Primary)
                     );
+
                 await channel.send({
                     flags: MessageFlags.IsComponentsV2,
-                    components: [container, button]
+                    components: [
+                        container,
+                        button
+                    ]
                 });
+
                 question.answered = [];
+
                 saveData(data);
+
                 return interaction.reply({
                     content: "✅ Question publiée.",
                     flags: MessageFlags.Ephemeral
                 });
             }
+
             if (interaction.customId === "question_answer") {
 
                 const modal = new ModalBuilder()
@@ -156,47 +197,123 @@ ${question.description ?? ""}`
                             .setRequired(true)
                     )
                 );
+
                 return interaction.showModal(modal);
             }
+
+            return;
         }
+
         if (interaction.isChannelSelectMenu()) {
-            if (interaction.customId === "question_channel_select") {
+
+            if (
+                interaction.customId ===
+                "question_channel_select"
+            ) {
+
                 question.channel = interaction.values[0];
+
                 saveData(data);
+
                 return interaction.update({
                     content: "✅ Salon enregistré.",
                     components: []
                 });
             }
+
+            return;
         }
+
         if (interaction.isModalSubmit()) {
-            if (interaction.customId === "question_answer_modal") {
-                if (question.answered.includes(interaction.user.id)) {
+
+            if (
+                interaction.customId ===
+                "question_answer_modal"
+            ) {
+
+                if (
+                    question.answered.includes(
+                        interaction.user.id
+                    )
+                ) {
                     return interaction.reply({
                         content: "❌ Tu as déjà répondu.",
                         flags: MessageFlags.Ephemeral
                     });
                 }
-                const answer = interaction.fields.getTextInputValue("answer");
-                question.answered.push(interaction.user.id);
+
+                const answer =
+                    interaction.fields.getTextInputValue(
+                        "answer"
+                    );
+
+                question.answered.push(
+                    interaction.user.id
+                );
+
                 saveData(data);
+
                 return interaction.reply({
-                    content: answer.toLowerCase() === question.correct.toLowerCase()
-                        ? "✅ Bonne réponse !"
-                        : "❌ Mauvaise réponse.",
+                    content:
+                        answer.toLowerCase() ===
+                        question.correct.toLowerCase()
+                            ? "✅ Bonne réponse !"
+                            : "❌ Mauvaise réponse.",
                     flags: MessageFlags.Ephemeral
                 });
             }
-            const value = interaction.fields.getTextInputValue("value");
-            if (interaction.customId === "question_title_modal")
+
+            const questionModalIds = [
+                "question_title_modal",
+                "question_description_modal",
+                "question_answer_add_modal",
+                "question_correct_modal"
+            ];
+
+            if (
+                !questionModalIds.includes(
+                    interaction.customId
+                )
+            ) {
+                return;
+            }
+
+            const value =
+                interaction.fields.getTextInputValue(
+                    "value"
+                );
+
+            if (
+                interaction.customId ===
+                "question_title_modal"
+            ) {
                 question.title = value;
-            if (interaction.customId === "question_description_modal")
-                question.description = value || null;
-            if (interaction.customId === "question_answer_add_modal")
+            }
+
+            if (
+                interaction.customId ===
+                "question_description_modal"
+            ) {
+                question.description =
+                    value || null;
+            }
+
+            if (
+                interaction.customId ===
+                "question_answer_add_modal"
+            ) {
                 question.answers.push(value);
-            if (interaction.customId === "question_correct_modal")
+            }
+
+            if (
+                interaction.customId ===
+                "question_correct_modal"
+            ) {
                 question.correct = value;
+            }
+
             saveData(data);
+
             return interaction.reply({
                 content: "✅ Enregistré.",
                 flags: MessageFlags.Ephemeral
