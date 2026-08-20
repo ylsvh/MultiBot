@@ -16,8 +16,6 @@ const {
 
 const GIVEAWAYS_FILE = path.join(__dirname, '../../data/giveaways.json');
 
-// ───── PERSISTANCE ─────
-
 function load() {
     if (!fs.existsSync(GIVEAWAYS_FILE)) return {};
     try { return JSON.parse(fs.readFileSync(GIVEAWAYS_FILE, 'utf8')); } catch { return {}; }
@@ -45,8 +43,6 @@ function remove(messageId) {
     delete all[messageId];
     save(all);
 }
-
-// ───── DRAFTS (mémoire) ─────
 
 const drafts = new Map();
 
@@ -77,8 +73,6 @@ function createDraft(guildId, userId, gcfg) {
     setDraft(guildId, userId, draft);
     return draft;
 }
-
-// ───── DURÉE ─────
 
 function parseDuration(str) {
     if (!str) return null;
@@ -113,8 +107,6 @@ function hexToInt(hex) {
     if (!hex) return 0xF1C40F;
     return parseInt(hex.replace('#', ''), 16);
 }
-
-// ───── CONTAINERS CV2 ─────
 
 function buildGiveawayEmbed(giveaway) {
     const lines = [];
@@ -224,8 +216,6 @@ function buildWizardRows(draft) {
     return [row1, row2, row3];
 }
 
-// ───── FIN DE GIVEAWAY ─────
-
 async function endGiveaway(giveaway, client) {
     try {
         const guild = client.guilds.cache.get(giveaway.guildId);
@@ -290,8 +280,6 @@ async function endGiveaway(giveaway, client) {
         update(giveaway.messageId, { ended: true });
     }
 }
-
-// ───── TIMER ─────
 
 let timerStarted = false;
 function startTimer(client) {
