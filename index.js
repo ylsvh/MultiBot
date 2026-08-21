@@ -9,22 +9,15 @@ const {
   ButtonStyle,
 } = require("discord.js");
 
-const fs = require("fs");
-const path = require("path");
 const config = require("./config");
 const guildConfig = require("./src/utils/guildConfig");
 const statsTracker = require("./src/utils/statsTracker");
 const snipe = require("./src/commands/other/snipe");
 const { Player } = require("discord-player");
 
-const LOG_FILE = path.join(__dirname, "role_logs.txt");
-
 function logAction(message) {
   const date = new Date().toISOString();
-  const line = `[${date}] ${message}\n`;
-
-  console.log(line.trim());
-  fs.appendFile(LOG_FILE, line, () => {});
+  console.log(`[${date}] ${message}`);
 }
 
 const client = new Client({
