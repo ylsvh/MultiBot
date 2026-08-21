@@ -1,27 +1,15 @@
 const { ActivityType } = require('discord.js');
-const path = require('path');
-const fs = require('fs');
 const guildConfig = require('../utils/guildConfig');
 const {
   SoundCloudExtractor,
   YouTubeExtractor
 } = require('@discord-player/extractor');
 
-const LOG_FILE = path.join(__dirname, '../../role_logs.txt');
-
 const statuses = [
   '+help'
 ];
 
 let currentStatus = 0;
-
-function logAction(message) {
-  const date = new Date().toISOString();
-  const line = `[${date}] ${message}\n`;
-
-  console.log(line.trim());
-  fs.appendFile(LOG_FILE, line, () => {});
-}
 
 function updateStatus(client) {
   const status = statuses[currentStatus];
@@ -31,7 +19,7 @@ function updateStatus(client) {
       {
         name: status,
         type: ActivityType.Streaming,
-        url: 'https://www.twitch.tv/ton-url-twitch'
+        url: 'https://www.twitch.tv/xbloxet'
       }
     ],
     status: 'online'
@@ -67,13 +55,14 @@ async function checkMember(member, config) {
   if (hasSt && !hasRole) {
     await member.roles.add(roleId);
 
-    logAction(
+    console.log(
       `[${member.guild.name}] Rôle soutien ajouté à ${member.user.tag}`
     );
+
   } else if (!hasSt && hasRole) {
     await member.roles.remove(roleId);
 
-    logAction(
+    console.log(
       `[${member.guild.name}] Rôle soutien retiré à ${member.user.tag}`
     );
   }
@@ -95,8 +84,9 @@ async function fullScan(client) {
       for (const member of guild.members.cache.values()) {
         await checkMember(member, config).catch(() => {});
       }
+
     } catch (err) {
-      logAction(
+      console.error(
         `Erreur scan ${guild.name}: ${err.message}`
       );
     }
@@ -108,20 +98,21 @@ module.exports = {
   once: true,
 
   async execute(client) {
-    logAction(
+
+    console.log(
       `Bot prêt (${client.user.tag}) — ${client.guilds.cache.size} serveur(s)`
     );
 
     try {
       if (!client.player) {
-        throw new Error('client.player n\'existe pas.');
+        throw new Error("client.player n'existe pas.");
       }
 
       await client.player.extractors.register(
         SoundCloudExtractor
       );
 
-      logAction(
+      console.log(
         '[MUSIC] SoundCloudExtractor chargé.'
       );
 
@@ -129,11 +120,13 @@ module.exports = {
         YouTubeExtractor
       );
 
-      logAction(
+      console.log(
         '[MUSIC] YouTubeExtractor chargé.'
       );
+
     } catch (err) {
-      logAction(
+
+      console.error(
         `[MUSIC] Erreur extractors : ${err.message}`
       );
 
