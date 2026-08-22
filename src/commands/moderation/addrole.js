@@ -1,4 +1,3 @@
-// src/commands/addrole.js
 const { PermissionsBitField, EmbedBuilder } = require('discord.js');
 
 module.exports = {
