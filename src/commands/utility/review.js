@@ -1,55 +1,141 @@
-const fs = require('fs');
+const Database = require('better-sqlite3');
 const path = require('path');
-const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const fs = require('fs');
+const {
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle
+} = require('discord.js');
 
-const REVIEW_CHANNEL_ID = "1495351088126361611"; // ← mets ton salon ici
-const DATA_PATH = path.join(__dirname, '../data/reviews.json');
+const REVIEW_CHANNEL_ID = "1540317279370084413";
+
+const dbPath = path.join(__dirname, '../../data/reviews.sqlite');
+
+const dataDir = path.dirname(dbPath);
+
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
+}
+
+const db = new Database(dbPath);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS reviews (
+    userId TEXT PRIMARY KEY,
+    note INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    date INTEGER NOT NULL
+  );
+`);
 
 module.exports = {
   name: 'review',
 
   async execute(client, message, args) {
+
+    const subcommand = args[0]?.toLowerCase();
+
+    if (subcommand === 'delete') {
+
+      const userId = message.author.id;
+
+      const review = db.prepare(`
+        SELECT userId
+        FROM reviews
+        WHERE userId = ?
+      `).get(userId);
+
+      if (!review) {
+        return message.reply("Tu n'as aucun avis à supprimer.");
+      }
+
+      db.prepare(`
+        DELETE FROM reviews
+        WHERE userId = ?
+      `).run(userId);
+
+      const channel = client.channels.cache.get(REVIEW_CHANNEL_ID);
+
+      if (channel) {
+        try {
+          const messages = await channel.messages.fetch({
+            limit: 100
+          });
+
+          const reviewMessage = messages.find(msg =>
+            msg.author.id === client.user.id &&
+            msg.components?.some(row =>
+              row.components?.some(component =>
+                component.customId === `review_delete_${userId}`
+              )
+            )
+          );
+
+          if (reviewMessage) {
+            await reviewMessage.delete().catch(() => {});
+          }
+        } catch (error) {
+          console.error(
+            '[REVIEW] Impossible de supprimer le message de l\'avis :',
+            error
+          );
+        }
+      }
+
+      return message.reply("Ton avis a été supprimé.");
+    }
+
     const note = parseInt(args[0]);
     const content = args.slice(1).join(" ");
 
     if (!note || note < 1 || note > 5) {
-      return message.reply("Note entre 1 et 5.");
+      return message.reply(
+        "Utilisation : `review <note> <commentaire>` ou `review delete`."
+      );
     }
 
     if (!content) {
       return message.reply("Ajoute un commentaire.");
     }
 
-    // 📥 charger JSON
-    let data = {};
-    if (fs.existsSync(DATA_PATH)) {
-      data = JSON.parse(fs.readFileSync(DATA_PATH));
-    }
-
     const userId = message.author.id;
 
-    // ❌ empêche double review (optionnel)
-    if (data[userId]) {
+    const existing = db.prepare(`
+      SELECT userId
+      FROM reviews
+      WHERE userId = ?
+    `).get(userId);
+
+    if (existing) {
       return message.reply("Tu as déjà envoyé un avis.");
     }
 
-    // 💾 stocker
-    data[userId] = {
-      note: note,
-      content: content,
-      date: Date.now()
-    };
+    db.prepare(`
+      INSERT INTO reviews (
+        userId,
+        note,
+        content,
+        date
+      )
+      VALUES (?, ?, ?, ?)
+    `).run(
+      userId,
+      note,
+      content,
+      Date.now()
+    );
 
-    fs.writeFileSync(DATA_PATH, JSON.stringify(data, null, 2));
+    const stars =
+      "⭐".repeat(note) +
+      "☆".repeat(5 - note);
 
-    // ⭐ étoiles
-    const stars = "⭐".repeat(note) + "☆".repeat(5 - note);
-
-    // 🧾 embed
     const embed = new EmbedBuilder()
       .setColor('#2b2d31')
       .setTitle(`Nouvel avis de ${message.author.username}`)
-      .setDescription("Cet avis est subjectif et reflète l'expérience personnelle de son auteur.")
+      .setDescription(
+        "Cet avis est subjectif et reflète l'expérience personnelle de son auteur."
+      )
       .addFields(
         {
           name: "Note :",
@@ -60,11 +146,16 @@ module.exports = {
           value: `\`\`\`yaml\n${content}\n\`\`\``
         }
       )
-      .setThumbnail(message.author.displayAvatarURL({ dynamic: true }))
-      .setFooter({ text: `ID: ${message.author.id}` })
+      .setThumbnail(
+        message.author.displayAvatarURL({
+          dynamic: true
+        })
+      )
+      .setFooter({
+        text: `ID: ${message.author.id}`
+      })
       .setTimestamp();
 
-    // 🔘 boutons
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`review_delete_${userId}`)
@@ -72,14 +163,36 @@ module.exports = {
         .setStyle(ButtonStyle.Danger)
     );
 
-    const channel = client.channels.cache.get(REVIEW_CHANNEL_ID);
-    if (!channel) return message.reply("Salon introuvable.");
+    const channel = client.channels.cache.get(
+      REVIEW_CHANNEL_ID
+    );
 
-    await channel.send({
-      embeds: [embed],
-      components: [row]
-    });
+    if (!channel) {
+      return message.reply("Salon introuvable.");
+    }
 
-    message.reply("Avis envoyé.");
+    try {
+      await channel.send({
+        embeds: [embed],
+        components: [row]
+      });
+    } catch (error) {
+
+      db.prepare(`
+        DELETE FROM reviews
+        WHERE userId = ?
+      `).run(userId);
+
+      console.error(
+        "[REVIEW] Impossible d'envoyer l'avis :",
+        error
+      );
+
+      return message.reply(
+        "Impossible d'envoyer l'avis."
+      );
+    }
+
+    return message.reply("Avis envoyé.");
   }
 };
