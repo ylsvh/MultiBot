@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const Database = require('better-sqlite3');
 
 const {
     getAutomod,
@@ -11,6 +12,129 @@ const warningsFile = path.join(
     '../../data/warnings.json'
 );
 
+const databaseFile = path.join(
+    __dirname,
+    '../../data/automodWarns.sqlite'
+);
+
+const db = new Database(databaseFile);
+
+db.pragma('journal_mode = WAL');
+
+db.exec(`
+    CREATE TABLE IF NOT EXISTS warnings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        guild_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        moderator TEXT NOT NULL,
+        timestamp INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_warnings_guild_user
+    ON warnings (guild_id, user_id);
+`);
+
+function migrateWarnings() {
+    if (!fs.existsSync(warningsFile)) return;
+
+    let data;
+
+    try {
+        data = JSON.parse(
+            fs.readFileSync(warningsFile, 'utf8')
+        );
+    } catch {
+        return;
+    }
+
+    const insert = db.prepare(`
+        INSERT INTO warnings (
+            guild_id,
+            user_id,
+            reason,
+            moderator,
+            timestamp
+        )
+        SELECT ?, ?, ?, ?, ?
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM warnings
+            WHERE guild_id = ?
+            AND user_id = ?
+            AND reason = ?
+            AND moderator = ?
+            AND timestamp = ?
+        )
+    `);
+
+    const migrate = db.transaction(() => {
+        for (const [guildId, users] of Object.entries(data || {})) {
+            if (!users || typeof users !== 'object') continue;
+
+            for (const [userId, warnings] of Object.entries(users)) {
+                if (!Array.isArray(warnings)) continue;
+
+                for (const warning of warnings) {
+                    if (!warning || typeof warning !== 'object') continue;
+
+                    const reason =
+                        String(warning.reason || 'Aucune raison');
+
+                    const moderator =
+                        String(warning.moderator || 'AutoMod');
+
+                    const timestamp =
+                        Number(warning.timestamp) || Date.now();
+
+                    insert.run(
+                        guildId,
+                        userId,
+                        reason,
+                        moderator,
+                        timestamp,
+                        guildId,
+                        userId,
+                        reason,
+                        moderator,
+                        timestamp
+                    );
+                }
+            }
+        }
+    });
+
+    try {
+        migrate();
+        fs.unlinkSync(warningsFile);
+    } catch {}
+}
+
+migrateWarnings();
+
+const insertWarning = db.prepare(`
+    INSERT INTO warnings (
+        guild_id,
+        user_id,
+        reason,
+        moderator,
+        timestamp
+    )
+    VALUES (?, ?, ?, ?, ?)
+`);
+
+function addWarning(guildId, userId, reason) {
+    try {
+        insertWarning.run(
+            guildId,
+            userId,
+            reason,
+            'AutoMod',
+            Date.now()
+        );
+    } catch {}
+}
+
 const spamCache = new Map();
 const mentionCache = new Map();
 
@@ -19,49 +143,6 @@ const INVITE_REGEX =
 
 const URL_REGEX =
     /(?:https?:\/\/|www\.)[^\s<>\"]{2,}/i;
-
-function loadWarnings() {
-    if (!fs.existsSync(warningsFile)) {
-        return {};
-    }
-
-    try {
-        return JSON.parse(
-            fs.readFileSync(warningsFile, 'utf8')
-        );
-    } catch {
-        return {};
-    }
-}
-
-function saveWarnings(data) {
-    try {
-        fs.writeFileSync(
-            warningsFile,
-            JSON.stringify(data, null, 2)
-        );
-    } catch {}
-}
-
-function addWarning(guildId, userId, reason) {
-    const data = loadWarnings();
-
-    if (!data[guildId]) {
-        data[guildId] = {};
-    }
-
-    if (!data[guildId][userId]) {
-        data[guildId][userId] = [];
-    }
-
-    data[guildId][userId].push({
-        reason,
-        moderator: 'AutoMod',
-        timestamp: Date.now()
-    });
-
-    saveWarnings(data);
-}
 
 async function takeAction(message, module, moduleName, reason) {
     const action = module.action;
