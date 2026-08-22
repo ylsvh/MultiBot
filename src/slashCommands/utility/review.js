@@ -6,95 +6,26 @@ const {
   ButtonStyle
 } = require('discord.js');
 
-const fs = require('fs');
 const path = require('path');
 const Database = require('better-sqlite3');
 
-const REVIEW_CHANNEL_ID = "1495351088126361611";
-const DATA_PATH = path.join(__dirname, '../../../data/reviews.json');
-const DATABASE_PATH = path.join(__dirname, '../../../data/reviews.sqlite');
+const REVIEW_CHANNEL_ID = "1540317279370084413";
 
-const db = new Database(DATABASE_PATH);
+const dbPath = path.join(__dirname, '../../../data/reviews.sqlite');
 
-function migrateReviews() {
-  if (!fs.existsSync(DATA_PATH)) return;
+const db = new Database(dbPath);
 
-  let data;
-
-  try {
-    data = JSON.parse(
-      fs.readFileSync(DATA_PATH, 'utf8') || '{}'
-    );
-  } catch (error) {
-    console.error(
-      'Impossible de lire reviews.json :',
-      error
-    );
-    return;
-  }
-
-  const insertReview = db.prepare(`
-    INSERT OR IGNORE INTO reviews (
-      userId,
-      content,
-      rating,
-      createdAt
-    )
-    VALUES (?, ?, ?, ?)
-  `);
-
-  const migrate = db.transaction(() => {
-    for (const [userId, review] of Object.entries(data)) {
-      if (!review || typeof review !== 'object') {
-        continue;
-      }
-
-      const rating = Number(
-        review.rating ?? review.note
-      );
-
-      const content = String(
-        review.content ?? review.commentaire ?? ''
-      );
-
-      const createdAt = Number(
-        review.createdAt ?? review.date
-      ) || Date.now();
-
-      if (
-        !userId ||
-        !content ||
-        !Number.isInteger(rating) ||
-        rating < 1 ||
-        rating > 5
-      ) {
-        continue;
-      }
-
-      insertReview.run(
-        userId,
-        content,
-        rating,
-        createdAt
-      );
-    }
-  });
-
-  try {
-    migrate();
-    fs.unlinkSync(DATA_PATH);
-  } catch (error) {
-    console.error(
-      'Impossible de terminer la migration de reviews.json :',
-      error
-    );
-  }
-}
-
-migrateReviews();
+db.exec(`
+  CREATE TABLE IF NOT EXISTS reviews (
+    userId TEXT PRIMARY KEY,
+    note INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    date INTEGER NOT NULL
+  );
+`);
 
 const getReview = db.prepare(`
-  SELECT userId
+  SELECT userId, note, content, date
   FROM reviews
   WHERE userId = ?
   LIMIT 1
@@ -103,150 +34,240 @@ const getReview = db.prepare(`
 const insertReview = db.prepare(`
   INSERT INTO reviews (
     userId,
+    note,
     content,
-    rating,
-    createdAt
+    date
   )
   VALUES (?, ?, ?, ?)
+`);
+
+const deleteReview = db.prepare(`
+  DELETE FROM reviews
+  WHERE userId = ?
 `);
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('review')
-    .setDescription('Envoyer un avis')
-    .addIntegerOption(option =>
-      option
-        .setName('note')
-        .setDescription('Note entre 1 et 5')
-        .setRequired(true)
+    .setDescription('Gestion des avis')
+
+    .addSubcommand(subcommand =>
+      subcommand
+        .setName('send')
+        .setDescription('Envoyer un avis')
+        .addIntegerOption(option =>
+          option
+            .setName('note')
+            .setDescription('Note entre 1 et 5')
+            .setMinValue(1)
+            .setMaxValue(5)
+            .setRequired(true)
+        )
+        .addStringOption(option =>
+          option
+            .setName('commentaire')
+            .setDescription('Ton avis')
+            .setRequired(true)
+        )
     )
-    .addStringOption(option =>
-      option
-        .setName('commentaire')
-        .setDescription('Ton avis')
-        .setRequired(true)
+
+    .addSubcommand(subcommand =>
+      subcommand
+        .setName('delete')
+        .setDescription('Supprimer ton avis')
     ),
 
   async execute(interaction) {
-    const note = interaction.options.getInteger('note');
-    const content = interaction.options.getString('commentaire');
 
-    if (!note || note < 1 || note > 5) {
-      return interaction.reply({
-        content: "Note entre 1 et 5.",
-        ephemeral: true
-      });
-    }
-
-    if (!content) {
-      return interaction.reply({
-        content: "Ajoute un commentaire.",
-        ephemeral: true
-      });
-    }
-
+    const subcommand = interaction.options.getSubcommand();
     const userId = interaction.user.id;
 
-    if (getReview.get(userId)) {
-      return interaction.reply({
-        content: "Tu as déjà envoyé un avis.",
-        ephemeral: true
-      });
-    }
 
-    try {
-      insertReview.run(
-        userId,
-        content,
-        note,
-        Date.now()
-      );
-    } catch (error) {
-      console.error(
-        "Impossible d'enregistrer l'avis :",
-        error
-      );
+    if (subcommand === 'send') {
 
-      return interaction.reply({
-        content: "Impossible d'enregistrer ton avis.",
-        ephemeral: true
-      });
-    }
+      const note = interaction.options.getInteger('note');
+      const content = interaction.options.getString('commentaire');
 
-    const stars =
-      "⭐".repeat(note) +
-      "☆".repeat(5 - note);
+      if (!note || note < 1 || note > 5) {
+        return interaction.reply({
+          content: "La note doit être comprise entre 1 et 5.",
+          ephemeral: true
+        });
+      }
 
-    const embed = new EmbedBuilder()
-      .setColor('#2b2d31')
-      .setTitle(`Nouvel avis de ${interaction.user.username}`)
-      .setDescription("Cet avis est subjectif.")
-      .addFields(
-        {
-          name: "Note",
-          value: `${stars} (${note}/5)`
-        },
-        {
-          name: "Commentaire",
-          value: `\`\`\`${content}\`\`\``
-        }
-      )
-      .setThumbnail(
-        interaction.user.displayAvatarURL()
-      )
-      .setFooter({
-        text: `ID: ${interaction.user.id}`
-      })
-      .setTimestamp();
+      if (!content || !content.trim()) {
+        return interaction.reply({
+          content: "Ajoute un commentaire.",
+          ephemeral: true
+        });
+      }
 
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`review_delete_${userId}`)
-        .setLabel('Supprimer')
-        .setStyle(ButtonStyle.Danger)
-    );
+      const existing = getReview.get(userId);
 
-    const channel =
-      interaction.client.channels.cache.get(
+      if (existing) {
+        return interaction.reply({
+          content: "Tu as déjà envoyé un avis.",
+          ephemeral: true
+        });
+      }
+
+      const channel = interaction.client.channels.cache.get(
         REVIEW_CHANNEL_ID
       );
 
-    if (!channel) {
-      db.prepare(`
-        DELETE FROM reviews
-        WHERE userId = ?
-      `).run(userId);
+      if (!channel) {
+        return interaction.reply({
+          content: "Salon des avis introuvable.",
+          ephemeral: true
+        });
+      }
 
-      return interaction.reply({
-        content: "Salon introuvable.",
-        ephemeral: true
-      });
+      try {
+
+        insertReview.run(
+          userId,
+          content,
+          note,
+          Date.now()
+        );
+
+        const stars =
+          "⭐".repeat(note) +
+          "☆".repeat(5 - note);
+
+        const embed = new EmbedBuilder()
+          .setColor('#2b2d31')
+          .setTitle(`Nouvel avis de ${interaction.user.username}`)
+          .setDescription("Cet avis est subjectif et reflète l'expérience personnelle de son auteur.")
+          .addFields(
+            {
+              name: "Note :",
+              value: `${stars} (${note}/5)`
+            },
+            {
+              name: "Commentaire :",
+              value: `\`\`\`yaml\n${content}\n\`\`\``
+            }
+          )
+          .setThumbnail(
+            interaction.user.displayAvatarURL({
+              dynamic: true
+            })
+          )
+          .setFooter({
+            text: `ID: ${interaction.user.id}`
+          })
+          .setTimestamp();
+
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`review_delete_${userId}`)
+            .setLabel('Supprimer')
+            .setStyle(ButtonStyle.Danger)
+        );
+
+        try {
+
+          await channel.send({
+            embeds: [embed],
+            components: [row]
+          });
+
+        } catch (error) {
+
+          deleteReview.run(userId);
+
+          console.error(
+            "[REVIEW] Impossible d'envoyer l'avis :",
+            error
+          );
+
+          return interaction.reply({
+            content: "Impossible d'envoyer l'avis.",
+            ephemeral: true
+          });
+        }
+
+        return interaction.reply({
+          content: "Avis envoyé.",
+          ephemeral: true
+        });
+
+      } catch (error) {
+
+        console.error(
+          "[REVIEW] Impossible d'enregistrer l'avis :",
+          error
+        );
+
+        return interaction.reply({
+          content: "Impossible d'enregistrer ton avis.",
+          ephemeral: true
+        });
+      }
     }
 
-    try {
-      await channel.send({
-        embeds: [embed],
-        components: [row]
-      });
-    } catch (error) {
-      db.prepare(`
-        DELETE FROM reviews
-        WHERE userId = ?
-      `).run(userId);
 
-      console.error(
-        "Impossible d'envoyer l'avis :",
-        error
-      );
+    if (subcommand === 'delete') {
 
-      return interaction.reply({
-        content: "Impossible d'envoyer l'avis.",
-        ephemeral: true
-      });
+      const review = getReview.get(userId);
+
+      if (!review) {
+        return interaction.reply({
+          content: "Tu n'as aucun avis à supprimer.",
+          ephemeral: true
+        });
+      }
+
+      try {
+
+        deleteReview.run(userId);
+
+        const channel = interaction.client.channels.cache.get(
+          REVIEW_CHANNEL_ID
+        );
+
+        if (channel) {
+
+          const messages = await channel.messages.fetch({
+            limit: 100
+          });
+
+          const reviewMessage = messages.find(message => {
+
+            if (message.author.id !== interaction.client.user.id) {
+              return false;
+            }
+
+            return message.components?.some(row =>
+              row.components?.some(component =>
+                component.customId === `review_delete_${userId}`
+              )
+            );
+          });
+
+          if (reviewMessage) {
+            await reviewMessage.delete().catch(() => {});
+          }
+        }
+
+        return interaction.reply({
+          content: "Ton avis a été supprimé.",
+          ephemeral: true
+        });
+
+      } catch (error) {
+
+        console.error(
+          "[REVIEW] Impossible de supprimer l'avis :",
+          error
+        );
+
+        return interaction.reply({
+          content: "Impossible de supprimer ton avis.",
+          ephemeral: true
+        });
+      }
     }
-
-    return interaction.reply({
-      content: "Avis envoyé."
-    });
   }
 };
