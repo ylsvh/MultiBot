@@ -1,69 +1,142 @@
 const fs = require("fs");
 const path = require("path");
+const Database = require("better-sqlite3");
 
 const dataDir = path.join(__dirname, "../../data");
-const file = path.join(dataDir, "stats.json");
+const sqliteFile = path.join(dataDir, "stats.sqlite");
+const jsonFile = path.join(dataDir, "stats.json");
 
 if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
 }
 
-function load() {
+const db = new Database(sqliteFile);
+
+db.exec(`
+    CREATE TABLE IF NOT EXISTS messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        guildId TEXT NOT NULL,
+        userId TEXT NOT NULL,
+        channelId TEXT NOT NULL,
+        timestamp INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS voice (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        guildId TEXT NOT NULL,
+        userId TEXT NOT NULL,
+        channelId TEXT NOT NULL,
+        startedAt INTEGER NOT NULL,
+        endedAt INTEGER NOT NULL,
+        duration INTEGER NOT NULL
+    );
+`);
+
+function migrateJson() {
+    if (!fs.existsSync(jsonFile)) return;
+
     try {
-        if (!fs.existsSync(file)) {
-            fs.writeFileSync(file, "{}");
-            return {};
-        }
+        const data = JSON.parse(fs.readFileSync(jsonFile, "utf8"));
 
-        return JSON.parse(fs.readFileSync(file, "utf8"));
-    } catch {
-        return {};
-    }
-}
+        const count = db.prepare(
+            "SELECT COUNT(*) as count FROM messages"
+        ).get().count;
 
-let data = load();
+        if (count > 0) return;
 
-function save() {
-    try {
-        fs.writeFileSync(file, JSON.stringify(data));
+        const insertMessage = db.prepare(`
+            INSERT INTO messages (
+                guildId,
+                userId,
+                channelId,
+                timestamp
+            )
+            VALUES (?, ?, ?, ?)
+        `);
+
+        const insertVoice = db.prepare(`
+            INSERT INTO voice (
+                guildId,
+                userId,
+                channelId,
+                startedAt,
+                endedAt,
+                duration
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+        `);
+
+        const transaction = db.transaction(() => {
+            for (const guildId in data) {
+
+                const guild = data[guildId];
+
+                if (Array.isArray(guild.messages)) {
+                    for (const msg of guild.messages) {
+                        insertMessage.run(
+                            guildId,
+                            msg.userId,
+                            msg.channelId,
+                            msg.timestamp
+                        );
+                    }
+                }
+
+                if (Array.isArray(guild.voice)) {
+                    for (const voice of guild.voice) {
+                        insertVoice.run(
+                            guildId,
+                            voice.userId,
+                            voice.channelId,
+                            voice.startedAt,
+                            voice.endedAt,
+                            voice.duration
+                        );
+                    }
+                }
+            }
+        });
+
+        transaction();
+
+        fs.renameSync(
+            jsonFile,
+            jsonFile + ".backup"
+        );
+
+        console.log("[STATS] Migration stats.json -> SQLite terminée");
+
     } catch (err) {
-        console.error("Erreur sauvegarde stats :", err);
+        console.error("[STATS] Erreur migration JSON :", err);
     }
 }
 
-function getGuild(guildId) {
-    if (!data[guildId]) {
-        data[guildId] = {
-            messages: [],
-            voice: []
-        };
-    }
+migrateJson();
 
-    if (!Array.isArray(data[guildId].messages)) {
-        data[guildId].messages = [];
-    }
-
-    if (!Array.isArray(data[guildId].voice)) {
-        data[guildId].voice = [];
-    }
-
-    return data[guildId];
-}
 
 function addMessage(message) {
-    if (!message.guild || !message.author || message.author.bot) return;
+    if (!message.guild || !message.author || message.author.bot) {
+        return;
+    }
 
-    const guild = getGuild(message.guild.id);
-
-    guild.messages.push({
-        userId: message.author.id,
-        channelId: message.channel.id,
-        timestamp: Date.now()
-    });
+    db.prepare(`
+        INSERT INTO messages (
+            guildId,
+            userId,
+            channelId,
+            timestamp
+        )
+        VALUES (?, ?, ?, ?)
+    `).run(
+        message.guild.id,
+        message.author.id,
+        message.channel.id,
+        Date.now()
+    );
 
     cleanup(message.guild.id);
-    save();
 }
+
 
 function addVoiceSession({
     guildId,
@@ -78,52 +151,96 @@ function addVoiceSession({
 
     const duration = endedAt - startedAt;
 
-    if (duration <= 0) return;
+    if (duration <= 0) {
+        return;
+    }
 
-    const guild = getGuild(guildId);
-
-    guild.voice.push({
+    db.prepare(`
+        INSERT INTO voice (
+            guildId,
+            userId,
+            channelId,
+            startedAt,
+            endedAt,
+            duration
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
+    `).run(
+        guildId,
         userId,
         channelId,
         startedAt,
         endedAt,
         duration
-    });
+    );
 
     cleanup(guildId);
-    save();
 }
+
 
 function cleanup(guildId) {
-    const guild = getGuild(guildId);
-    const limit = Date.now() - (14 * 24 * 60 * 60 * 1000);
-
-    guild.messages = guild.messages.filter(
-        x => x.timestamp >= limit
+    const limit = Date.now() - (
+        14 * 24 * 60 * 60 * 1000
     );
 
-    guild.voice = guild.voice.filter(
-        x => x.endedAt >= limit
+    db.prepare(`
+        DELETE FROM messages
+        WHERE guildId = ?
+        AND timestamp < ?
+    `).run(
+        guildId,
+        limit
+    );
+
+    db.prepare(`
+        DELETE FROM voice
+        WHERE guildId = ?
+        AND endedAt < ?
+    `).run(
+        guildId,
+        limit
     );
 }
 
-function getStats(guildId, days) {
-    const guild = getGuild(guildId);
 
+function getStats(guildId, days) {
     cleanup(guildId);
 
-    const since = Date.now() - (days * 24 * 60 * 60 * 1000);
+    const since = Date.now() - (
+        days * 24 * 60 * 60 * 1000
+    );
 
     return {
-        messages: guild.messages.filter(
-            x => x.timestamp >= since
+        messages: db.prepare(`
+            SELECT
+                userId,
+                channelId,
+                timestamp
+            FROM messages
+            WHERE guildId = ?
+            AND timestamp >= ?
+        `).all(
+            guildId,
+            since
         ),
 
-        voice: guild.voice.filter(
-            x => x.endedAt >= since
+        voice: db.prepare(`
+            SELECT
+                userId,
+                channelId,
+                startedAt,
+                endedAt,
+                duration
+            FROM voice
+            WHERE guildId = ?
+            AND endedAt >= ?
+        `).all(
+            guildId,
+            since
         )
     };
 }
+
 
 module.exports = {
     addMessage,
