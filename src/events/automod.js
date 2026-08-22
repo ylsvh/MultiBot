@@ -9,6 +9,7 @@ const {
 
 const fs = require('fs');
 const path = require('path');
+const Database = require('better-sqlite3');
 
 const {
     getAutomod,
@@ -18,70 +19,115 @@ const {
 const { sendLog } = require('../utils/logHelper');
 
 const WARNINGS_FILE = path.join(__dirname, '../../data/warnings.json');
+const DATABASE_FILE = path.join(__dirname, '../../data/automodWarns.sqlite');
 
-const INVITE_REGEX =
-    /(?:https?:\/\/)?(?:www\.)?(?:discord(?:app)?\.(?:gg|com\/invite)\/[a-zA-Z0-9-]+)/gi;
+const db = new Database(DATABASE_FILE);
 
-const URL_REGEX =
-    /(?:https?:\/\/|www\.)[^\s<>"`]+/gi;
+db.pragma('journal_mode = WAL');
 
-const spamCache = new Map();
+db.exec(`
+    CREATE TABLE IF NOT EXISTS warnings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        guild_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        moderator TEXT NOT NULL,
+        timestamp INTEGER NOT NULL
+    );
 
-const ACTION_COLORS = {
-    delete: 0x99AAB5,
-    warn: 0xFEE75C,
-    mute: 0xF04747,
-    kick: 0xED4245,
-    ban: 0x36393F
-};
+    CREATE INDEX IF NOT EXISTS idx_warnings_guild_user
+    ON warnings (guild_id, user_id);
+`);
 
-const ACTION_LABELS = {
-    delete: '🗑️ Message supprimé',
-    warn: '⚠️ Avertissement',
-    mute: '🔇 Mute 10 minutes',
-    kick: '👢 Expulsion',
-    ban: '🔨 Bannissement'
-};
+function migrateWarnings() {
+    if (!fs.existsSync(WARNINGS_FILE)) return;
 
-const MODULE_LABELS = {
-    antiinvite: '🔗 Anti-Invitations',
-    antilink: '🌐 Anti-Liens',
-    antiwords: '🚫 Anti-Mots',
-    antispam: '📨 Anti-Spam',
-    anticaps: '🔠 Anti-Majuscules',
-    antimention: '📢 Anti-Mentions'
-};
-
-function loadWarnings() {
-    if (!fs.existsSync(WARNINGS_FILE)) return {};
+    let data;
 
     try {
-        return JSON.parse(fs.readFileSync(WARNINGS_FILE, 'utf8'));
+        data = JSON.parse(fs.readFileSync(WARNINGS_FILE, 'utf8'));
     } catch {
-        return {};
-    }
-}
-
-function saveWarning(guildId, userId, reason, moderator = 'AutoMod') {
-    const data = loadWarnings();
-
-    if (!data[guildId]) {
-        data[guildId] = {};
+        return;
     }
 
-    if (!data[guildId][userId]) {
-        data[guildId][userId] = [];
-    }
+    const insert = db.prepare(`
+        INSERT INTO warnings (
+            guild_id,
+            user_id,
+            reason,
+            moderator,
+            timestamp
+        )
+        SELECT ?, ?, ?, ?, ?
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM warnings
+            WHERE guild_id = ?
+            AND user_id = ?
+            AND reason = ?
+            AND moderator = ?
+            AND timestamp = ?
+        )
+    `);
 
-    data[guildId][userId].push({
-        reason,
-        moderator,
-        timestamp: Date.now()
+    const migrate = db.transaction(() => {
+        for (const [guildId, users] of Object.entries(data || {})) {
+            if (!users || typeof users !== 'object') continue;
+
+            for (const [userId, warnings] of Object.entries(users)) {
+                if (!Array.isArray(warnings)) continue;
+
+                for (const warning of warnings) {
+                    if (!warning || typeof warning !== 'object') continue;
+
+                    const reason = String(warning.reason || 'Aucune raison');
+                    const moderator = String(warning.moderator || 'AutoMod');
+                    const timestamp = Number(warning.timestamp) || Date.now();
+
+                    insert.run(
+                        guildId,
+                        userId,
+                        reason,
+                        moderator,
+                        timestamp,
+                        guildId,
+                        userId,
+                        reason,
+                        moderator,
+                        timestamp
+                    );
+                }
+            }
+        }
     });
 
-    fs.writeFileSync(
-        WARNINGS_FILE,
-        JSON.stringify(data, null, 2)
+    try {
+        migrate();
+
+        fs.unlinkSync(WARNINGS_FILE);
+    } catch {}
+}
+
+migrateWarnings();
+
+const insertWarning = db.prepare(`
+    INSERT INTO warnings (
+        guild_id,
+        user_id,
+        reason,
+        moderator,
+        timestamp
+    )
+    VALUES (?, ?, ?, ?, ?)
+`);
+
+function saveWarning(guildId, userId, reason, moderator = 'AutoMod') {
+    insertWarning.run(
+        guildId,
+        userId,
+        reason,
+        moderator,
+        Date.now()
     );
 }
 
@@ -243,6 +289,39 @@ async function takeAction(message, mod, moduleName, reason) {
 
     await sendLog(guild, 'automod', container);
 }
+
+const spamCache = new Map();
+
+const ACTION_COLORS = {
+    delete: 0x99AAB5,
+    warn: 0xFEE75C,
+    mute: 0xF04747,
+    kick: 0xED4245,
+    ban: 0x36393F
+};
+
+const ACTION_LABELS = {
+    delete: '🗑️ Message supprimé',
+    warn: '⚠️ Avertissement',
+    mute: '🔇 Mute 10 minutes',
+    kick: '👢 Expulsion',
+    ban: '🔨 Bannissement'
+};
+
+const MODULE_LABELS = {
+    antiinvite: '🔗 Anti-Invitations',
+    antilink: '🌐 Anti-Liens',
+    antiwords: '🚫 Anti-Mots',
+    antispam: '📨 Anti-Spam',
+    anticaps: '🔠 Anti-Majuscules',
+    antimention: '📢 Anti-Mentions'
+};
+
+const INVITE_REGEX =
+    /(?:https?:\/\/)?(?:www\.)?(?:discord(?:app)?\.(?:gg|com\/invite)\/[a-zA-Z0-9-]+)/gi;
+
+const URL_REGEX =
+    /(?:https?:\/\/|www\.)[^\s<>"`]+/gi;
 
 module.exports = {
     name: 'messageCreate',
