@@ -15,7 +15,6 @@ module.exports = {
             return message.reply("Utilisation : `+ban-alt @membre`");
         }
 
-        // Nombre de jours max pour considérer comme alt
         const maxDays = 7;
 
         const accountAge = (Date.now() - member.user.createdAt) / (1000 * 60 * 60 * 24);
