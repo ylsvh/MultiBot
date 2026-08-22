@@ -7,6 +7,8 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  REST,
+  Routes,
 } = require("discord.js");
 
 const config = require("./config");
@@ -49,6 +51,36 @@ snipe.init(client);
 
 const invitesCache = new Map();
 const voiceSessions = new Map();
+
+async function registerSlashCommands() {
+  const commands = [];
+
+  client.slashCommands.forEach(command => {
+    if (command.data) {
+      commands.push(command.data.toJSON());
+    }
+  });
+
+  const rest = new REST({ version: "10" }).setToken(config.token);
+
+  try {
+    await rest.put(
+      Routes.applicationCommands(client.user.id),
+      {
+        body: commands,
+      }
+    );
+
+    console.log(
+      `✅ ${commands.length} slash commands enregistrées globalement.`
+    );
+  } catch (error) {
+    console.error(
+      "❌ Impossible d'enregistrer les slash commands :",
+      error
+    );
+  }
+}
 
 async function findUsedInvite(guild) {
   if (!guild) return null;
@@ -100,6 +132,10 @@ async function getBotAdder(guild, botId) {
 }
 
 client.once("ready", async () => {
+  console.log(`✅ Connecté en tant que ${client.user.tag}`);
+
+  await registerSlashCommands();
+
   client.guilds.cache.forEach(async (guild) => {
     try {
       const invites = await guild.invites.fetch();
