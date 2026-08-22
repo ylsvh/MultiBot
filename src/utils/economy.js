@@ -1,27 +1,422 @@
 const fs = require('fs');
 const path = require('path');
+const Database = require('better-sqlite3');
 
 const filePath = path.join(__dirname, '../../data/economy.json');
+const databasePath = path.join(__dirname, '../../data/economy.sqlite');
 const configPath = path.join(__dirname, '../../data/economyConfig.json');
 
-function loadData() {
-  if (!fs.existsSync(filePath)) {
-    fs.writeFileSync(filePath, JSON.stringify({}, null, 2));
+const db = new Database(databasePath);
+
+db.pragma('journal_mode = WAL');
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS economy (
+    user_id TEXT PRIMARY KEY,
+    cash INTEGER NOT NULL DEFAULT 0,
+    bank INTEGER NOT NULL DEFAULT 0,
+    total_earned INTEGER NOT NULL DEFAULT 0,
+
+    last_daily INTEGER NOT NULL DEFAULT 0,
+    last_weekly INTEGER NOT NULL DEFAULT 0,
+    last_monthly INTEGER NOT NULL DEFAULT 0,
+    last_work INTEGER NOT NULL DEFAULT 0,
+    last_rob INTEGER NOT NULL DEFAULT 0,
+
+    daily_streak INTEGER NOT NULL DEFAULT 0,
+    weekly_streak INTEGER NOT NULL DEFAULT 0,
+    monthly_streak INTEGER NOT NULL DEFAULT 0,
+
+    inventory TEXT NOT NULL DEFAULT '[]',
+    stats TEXT NOT NULL DEFAULT '{}'
+  )
+`);
+
+const DEFAULT_USER = {
+  cash: 0,
+  bank: 0,
+  totalEarned: 0,
+
+  lastDaily: 0,
+  lastWeekly: 0,
+  lastMonthly: 0,
+  lastWork: 0,
+  lastRob: 0,
+
+  dailyStreak: 0,
+  weeklyStreak: 0,
+  monthlyStreak: 0,
+
+  inventory: [],
+
+  stats: {
+    workCount: 0,
+    dailyCount: 0,
+    weeklyCount: 0,
+    monthlyCount: 0,
+    robSuccess: 0,
+    robFailed: 0,
+    successfulRobberies: 0,
+    failedRobberies: 0,
+    timesRobbed: 0,
+    slotsWins: 0,
+    slotsLosses: 0,
+    coinflipWins: 0,
+    coinflipLosses: 0
+  }
+};
+
+const DEFAULT_STATS = {
+  workCount: 0,
+  dailyCount: 0,
+  weeklyCount: 0,
+  monthlyCount: 0,
+  robSuccess: 0,
+  robFailed: 0,
+  successfulRobberies: 0,
+  failedRobberies: 0,
+  timesRobbed: 0,
+  slotsWins: 0,
+  slotsLosses: 0,
+  coinflipWins: 0,
+  coinflipLosses: 0
+};
+
+function normalizeUser(user) {
+  const normalized = {
+    ...DEFAULT_USER,
+    ...(user || {})
+  };
+
+  normalized.cash =
+    typeof normalized.cash === 'number'
+      ? normalized.cash
+      : 0;
+
+  normalized.bank =
+    typeof normalized.bank === 'number'
+      ? normalized.bank
+      : 0;
+
+  normalized.totalEarned =
+    typeof normalized.totalEarned === 'number'
+      ? normalized.totalEarned
+      : 0;
+
+  normalized.lastDaily =
+    typeof normalized.lastDaily === 'number'
+      ? normalized.lastDaily
+      : 0;
+
+  normalized.lastWeekly =
+    typeof normalized.lastWeekly === 'number'
+      ? normalized.lastWeekly
+      : 0;
+
+  normalized.lastMonthly =
+    typeof normalized.lastMonthly === 'number'
+      ? normalized.lastMonthly
+      : 0;
+
+  normalized.lastWork =
+    typeof normalized.lastWork === 'number'
+      ? normalized.lastWork
+      : 0;
+
+  normalized.lastRob =
+    typeof normalized.lastRob === 'number'
+      ? normalized.lastRob
+      : 0;
+
+  normalized.dailyStreak =
+    typeof normalized.dailyStreak === 'number'
+      ? normalized.dailyStreak
+      : 0;
+
+  normalized.weeklyStreak =
+    typeof normalized.weeklyStreak === 'number'
+      ? normalized.weeklyStreak
+      : 0;
+
+  normalized.monthlyStreak =
+    typeof normalized.monthlyStreak === 'number'
+      ? normalized.monthlyStreak
+      : 0;
+
+  if (!Array.isArray(normalized.inventory)) {
+    normalized.inventory = [];
   }
 
+  if (!normalized.stats || typeof normalized.stats !== 'object') {
+    normalized.stats = {};
+  }
+
+  normalized.stats = {
+    ...DEFAULT_STATS,
+    ...normalized.stats
+  };
+
+  for (const key of Object.keys(DEFAULT_STATS)) {
+    if (typeof normalized.stats[key] !== 'number') {
+      normalized.stats[key] = DEFAULT_STATS[key];
+    }
+  }
+
+  return normalized;
+}
+
+function migrateEconomy() {
+  if (!fs.existsSync(filePath)) {
+    return;
+  }
+
+  let data;
+
   try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8') || '{}');
+    data = JSON.parse(
+      fs.readFileSync(filePath, 'utf8') || '{}'
+    );
   } catch (error) {
     console.error('Impossible de lire economy.json :', error);
-    return {};
+    return;
+  }
+
+  if (!data || typeof data !== 'object') {
+    return;
+  }
+
+  const insert = db.prepare(`
+    INSERT OR IGNORE INTO economy (
+      user_id,
+      cash,
+      bank,
+      total_earned,
+      last_daily,
+      last_weekly,
+      last_monthly,
+      last_work,
+      last_rob,
+      daily_streak,
+      weekly_streak,
+      monthly_streak,
+      inventory,
+      stats
+    )
+    VALUES (
+      @userId,
+      @cash,
+      @bank,
+      @totalEarned,
+      @lastDaily,
+      @lastWeekly,
+      @lastMonthly,
+      @lastWork,
+      @lastRob,
+      @dailyStreak,
+      @weeklyStreak,
+      @monthlyStreak,
+      @inventory,
+      @stats
+    )
+  `);
+
+  const migrate = db.transaction(() => {
+    for (const [userId, userData] of Object.entries(data)) {
+      const user = normalizeUser(userData);
+
+      insert.run({
+        userId,
+        cash: user.cash,
+        bank: user.bank,
+        totalEarned: user.totalEarned,
+        lastDaily: user.lastDaily,
+        lastWeekly: user.lastWeekly,
+        lastMonthly: user.lastMonthly,
+        lastWork: user.lastWork,
+        lastRob: user.lastRob,
+        dailyStreak: user.dailyStreak,
+        weeklyStreak: user.weeklyStreak,
+        monthlyStreak: user.monthlyStreak,
+        inventory: JSON.stringify(user.inventory),
+        stats: JSON.stringify(user.stats)
+      });
+    }
+  });
+
+  try {
+    migrate();
+    fs.unlinkSync(filePath);
+  } catch (error) {
+    console.error('Impossible de terminer la migration de economy.json :', error);
   }
 }
 
-function saveData(data) {
+migrateEconomy();
+
+const selectUser = db.prepare(`
+  SELECT *
+  FROM economy
+  WHERE user_id = ?
+`);
+
+const insertUser = db.prepare(`
+  INSERT INTO economy (
+    user_id,
+    cash,
+    bank,
+    total_earned,
+    last_daily,
+    last_weekly,
+    last_monthly,
+    last_work,
+    last_rob,
+    daily_streak,
+    weekly_streak,
+    monthly_streak,
+    inventory,
+    stats
+  )
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`);
+
+const updateUserQuery = db.prepare(`
+  UPDATE economy
+  SET
+    cash = ?,
+    bank = ?,
+    total_earned = ?,
+    last_daily = ?,
+    last_weekly = ?,
+    last_monthly = ?,
+    last_work = ?,
+    last_rob = ?,
+    daily_streak = ?,
+    weekly_streak = ?,
+    monthly_streak = ?,
+    inventory = ?,
+    stats = ?
+  WHERE user_id = ?
+`);
+
+function rowToUser(row) {
+  if (!row) return null;
+
+  let inventory = [];
+  let stats = {};
+
   try {
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+    inventory = JSON.parse(row.inventory || '[]');
+  } catch {
+    inventory = [];
+  }
+
+  try {
+    stats = JSON.parse(row.stats || '{}');
+  } catch {
+    stats = {};
+  }
+
+  return normalizeUser({
+    cash: row.cash,
+    bank: row.bank,
+    totalEarned: row.total_earned,
+
+    lastDaily: row.last_daily,
+    lastWeekly: row.last_weekly,
+    lastMonthly: row.last_monthly,
+    lastWork: row.last_work,
+    lastRob: row.last_rob,
+
+    dailyStreak: row.daily_streak,
+    weeklyStreak: row.weekly_streak,
+    monthlyStreak: row.monthly_streak,
+
+    inventory,
+    stats
+  });
+}
+
+function saveUser(userId, user) {
+  const normalized = normalizeUser(user);
+
+  updateUserQuery.run(
+    normalized.cash,
+    normalized.bank,
+    normalized.totalEarned,
+
+    normalized.lastDaily,
+    normalized.lastWeekly,
+    normalized.lastMonthly,
+    normalized.lastWork,
+    normalized.lastRob,
+
+    normalized.dailyStreak,
+    normalized.weeklyStreak,
+    normalized.monthlyStreak,
+
+    JSON.stringify(normalized.inventory),
+    JSON.stringify(normalized.stats),
+
+    userId
+  );
+}
+
+function loadData() {
+  const rows = db.prepare(`
+    SELECT *
+    FROM economy
+  `).all();
+
+  const data = {};
+
+  for (const row of rows) {
+    data[row.user_id] = rowToUser(row);
+  }
+
+  return data;
+}
+
+function saveData(data) {
+  if (!data || typeof data !== 'object') {
+    return;
+  }
+
+  const transaction = db.transaction(() => {
+    for (const [userId, userData] of Object.entries(data)) {
+      const user = normalizeUser(userData);
+
+      const existing = selectUser.get(userId);
+
+      if (existing) {
+        saveUser(userId, user);
+      } else {
+        insertUser.run(
+          userId,
+          user.cash,
+          user.bank,
+          user.totalEarned,
+
+          user.lastDaily,
+          user.lastWeekly,
+          user.lastMonthly,
+          user.lastWork,
+          user.lastRob,
+
+          user.dailyStreak,
+          user.weeklyStreak,
+          user.monthlyStreak,
+
+          JSON.stringify(user.inventory),
+          JSON.stringify(user.stats)
+        );
+      }
+    }
+  });
+
+  try {
+    transaction();
   } catch (error) {
-    console.error('Impossible de sauvegarder economy.json :', error);
+    console.error('Impossible de sauvegarder les données economy :', error);
   }
 }
 
@@ -87,7 +482,10 @@ function loadConfig() {
 
     return config;
   } catch (error) {
-    console.error('Impossible de lire economyConfig.json :', error);
+    console.error(
+      'Impossible de lire economyConfig.json :',
+      error
+    );
 
     return {
       rewards: {
@@ -116,113 +514,56 @@ function saveConfig(config) {
       JSON.stringify(config, null, 2)
     );
   } catch (error) {
-    console.error('Impossible de sauvegarder economyConfig.json :', error);
+    console.error(
+      'Impossible de sauvegarder economyConfig.json :',
+      error
+    );
   }
 }
 
 function getUser(userId) {
-  const data = loadData();
+  let row = selectUser.get(userId);
 
-  if (!data[userId]) {
-    data[userId] = {
-      cash: 0,
-      bank: 0,
-      totalEarned: 0,
+  if (!row) {
+    const user = normalizeUser(DEFAULT_USER);
 
-      lastDaily: 0,
-      lastWeekly: 0,
-      lastMonthly: 0,
-      lastWork: 0,
-      lastRob: 0,
+    insertUser.run(
+      userId,
+      user.cash,
+      user.bank,
+      user.totalEarned,
 
-      dailyStreak: 0,
-      weeklyStreak: 0,
-      monthlyStreak: 0,
+      user.lastDaily,
+      user.lastWeekly,
+      user.lastMonthly,
+      user.lastWork,
+      user.lastRob,
 
-      inventory: [],
+      user.dailyStreak,
+      user.weeklyStreak,
+      user.monthlyStreak,
 
-      stats: {
-        workCount: 0,
-        dailyCount: 0,
-        weeklyCount: 0,
-        monthlyCount: 0,
-        robSuccess: 0,
-        robFailed: 0,
-        successfulRobberies: 0,
-        failedRobberies: 0,
-        timesRobbed: 0,
-        slotsWins: 0,
-        slotsLosses: 0,
-        coinflipWins: 0,
-        coinflipLosses: 0
-      }
-    };
+      JSON.stringify(user.inventory),
+      JSON.stringify(user.stats)
+    );
 
-    saveData(data);
+    row = selectUser.get(userId);
   }
 
-  const user = data[userId];
-
-  if (typeof user.cash !== 'number') user.cash = 0;
-  if (typeof user.bank !== 'number') user.bank = 0;
-  if (typeof user.totalEarned !== 'number') user.totalEarned = 0;
-
-  if (typeof user.lastDaily !== 'number') user.lastDaily = 0;
-  if (typeof user.lastWeekly !== 'number') user.lastWeekly = 0;
-  if (typeof user.lastMonthly !== 'number') user.lastMonthly = 0;
-  if (typeof user.lastWork !== 'number') user.lastWork = 0;
-  if (typeof user.lastRob !== 'number') user.lastRob = 0;
-
-  if (typeof user.dailyStreak !== 'number') user.dailyStreak = 0;
-  if (typeof user.weeklyStreak !== 'number') user.weeklyStreak = 0;
-  if (typeof user.monthlyStreak !== 'number') user.monthlyStreak = 0;
-
-  if (!Array.isArray(user.inventory)) {
-    user.inventory = [];
-  }
-
-  if (!user.stats || typeof user.stats !== 'object') {
-    user.stats = {};
-  }
-
-  const defaultStats = {
-    workCount: 0,
-    dailyCount: 0,
-    weeklyCount: 0,
-    monthlyCount: 0,
-    robSuccess: 0,
-    robFailed: 0,
-    successfulRobberies: 0,
-    failedRobberies: 0,
-    timesRobbed: 0,
-    slotsWins: 0,
-    slotsLosses: 0,
-    coinflipWins: 0,
-    coinflipLosses: 0
-  };
-
-  for (const [key, value] of Object.entries(defaultStats)) {
-    if (typeof user.stats[key] !== 'number') {
-      user.stats[key] = value;
-    }
-  }
-
-  return user;
+  return rowToUser(row);
 }
 
 function updateUser(userId, changes) {
-  const data = loadData();
-
   const current = getUser(userId);
 
-  data[userId] = {
+  const updated = {
     ...current,
     ...changes
   };
 
-  saveData(data);
+  saveUser(userId, updated);
 
-  return data[userId];
+  return getUser(userId);
 }
 
 function addCash(userId, amount) {
@@ -299,23 +640,24 @@ function transfer(fromId, toId, amount) {
 }
 
 function getLeaderboard(limit = 10) {
-  const data = loadData();
+  const rows = db.prepare(`
+    SELECT
+      user_id,
+      cash,
+      bank
+    FROM economy
+    WHERE typeof(cash) = 'integer'
+    AND typeof(bank) = 'integer'
+    ORDER BY (cash + bank) DESC
+    LIMIT ?
+  `).all(limit);
 
-  return Object.entries(data)
-    .filter(([id, user]) => {
-      return user &&
-        typeof user === 'object' &&
-        typeof user.cash === 'number' &&
-        typeof user.bank === 'number';
-    })
-    .map(([id, user]) => ({
-      id,
-      total: (user.cash || 0) + (user.bank || 0),
-      cash: user.cash || 0,
-      bank: user.bank || 0
-    }))
-    .sort((a, b) => b.total - a.total)
-    .slice(0, limit);
+  return rows.map(row => ({
+    id: row.user_id,
+    total: (row.cash || 0) + (row.bank || 0),
+    cash: row.cash || 0,
+    bank: row.bank || 0
+  }));
 }
 
 function getUserData(userId) {
@@ -536,97 +878,39 @@ function applyRoleBonus(amount, bonus) {
 }
 
 function resetUser(userId) {
-  const data = loadData();
+  const row = selectUser.get(userId);
 
-  if (!data[userId]) {
+  if (!row) {
     return false;
   }
 
-  data[userId] = {
-    cash: 0,
-    bank: 0,
-    totalEarned: 0,
+  const user = normalizeUser(DEFAULT_USER);
 
-    lastDaily: 0,
-    lastWeekly: 0,
-    lastMonthly: 0,
-    lastWork: 0,
-    lastRob: 0,
-
-    dailyStreak: 0,
-    weeklyStreak: 0,
-    monthlyStreak: 0,
-
-    inventory: [],
-
-    stats: {
-      workCount: 0,
-      dailyCount: 0,
-      weeklyCount: 0,
-      monthlyCount: 0,
-      robSuccess: 0,
-      robFailed: 0,
-      successfulRobberies: 0,
-      failedRobberies: 0,
-      timesRobbed: 0,
-      slotsWins: 0,
-      slotsLosses: 0,
-      coinflipWins: 0,
-      coinflipLosses: 0
-    }
-  };
-
-  saveData(data);
+  saveUser(userId, user);
 
   return true;
 }
 
 function resetAllUsers() {
-  const data = loadData();
+  const result = db.prepare(`
+    UPDATE economy
+    SET
+      cash = 0,
+      bank = 0,
+      total_earned = 0,
+      last_daily = 0,
+      last_weekly = 0,
+      last_monthly = 0,
+      last_work = 0,
+      last_rob = 0,
+      daily_streak = 0,
+      weekly_streak = 0,
+      monthly_streak = 0,
+      inventory = '[]',
+      stats = ?
+  `).run(JSON.stringify(DEFAULT_STATS));
 
-  let count = 0;
-
-  for (const userId of Object.keys(data)) {
-    data[userId] = {
-      cash: 0,
-      bank: 0,
-      totalEarned: 0,
-
-      lastDaily: 0,
-      lastWeekly: 0,
-      lastMonthly: 0,
-      lastWork: 0,
-      lastRob: 0,
-
-      dailyStreak: 0,
-      weeklyStreak: 0,
-      monthlyStreak: 0,
-
-      inventory: [],
-
-      stats: {
-        workCount: 0,
-        dailyCount: 0,
-        weeklyCount: 0,
-        monthlyCount: 0,
-        robSuccess: 0,
-        robFailed: 0,
-        successfulRobberies: 0,
-        failedRobberies: 0,
-        timesRobbed: 0,
-        slotsWins: 0,
-        slotsLosses: 0,
-        coinflipWins: 0,
-        coinflipLosses: 0
-      }
-    };
-
-    count++;
-  }
-
-  saveData(data);
-
-  return count;
+  return result.changes;
 }
 
 module.exports = {
