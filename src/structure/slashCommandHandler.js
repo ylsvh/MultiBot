@@ -1,28 +1,79 @@
 const fs = require("fs");
 const path = require("path");
+const {
+    InteractionContextType,
+    ApplicationIntegrationType
+} = require("discord.js");
+
+function getSlashCommandFiles(dir) {
+    let files = [];
+
+    if (!fs.existsSync(dir)) {
+        return files;
+    }
+
+    for (const item of fs.readdirSync(dir)) {
+        const fullPath = path.join(dir, item);
+        const stat = fs.statSync(fullPath);
+
+        if (stat.isDirectory()) {
+            files.push(...getSlashCommandFiles(fullPath));
+        } else if (item.endsWith(".js")) {
+            files.push(fullPath);
+        }
+    }
+
+    return files;
+}
 
 module.exports = (client) => {
     const slashPath = path.join(__dirname, "../slashCommands");
 
-    const slashFiles = fs
-        .readdirSync(slashPath)
-        .filter((file) => file.endsWith(".js"));
+    const slashFiles = getSlashCommandFiles(slashPath);
 
     for (const file of slashFiles) {
-        const command = require(path.join(slashPath, file));
+        try {
+            const command = require(file);
 
-        if (command.data && command.data.name) {
-            client.slashCommands.set(command.data.name, command);
-            console.log(`Slash command loaded: ${command.data.name}`);
-        } else {
-            console.log(`❌ Slash command invalid in file ${file}`);
+            if (command.data && command.data.name) {
+                command.data
+                    .setContexts(
+                        InteractionContextType.Guild,
+                        InteractionContextType.BotDM,
+                        InteractionContextType.PrivateChannel
+                    )
+                    .setIntegrationTypes(
+                        ApplicationIntegrationType.GuildInstall,
+                        ApplicationIntegrationType.UserInstall
+                    );
+
+                client.slashCommands.set(
+                    command.data.name,
+                    command
+                );
+
+                console.log(
+                    `Slash command loaded: ${command.data.name}`
+                );
+            } else {
+                console.log(
+                    `❌ Slash command invalid in file ${file}`
+                );
+            }
+        } catch (error) {
+            console.error(
+                `❌ Impossible de charger la slash command ${file}:`,
+                error
+            );
         }
     }
 
     client.on("interactionCreate", async (interaction) => {
         if (!interaction.isChatInputCommand()) return;
 
-        const command = client.slashCommands.get(interaction.commandName);
+        const command = client.slashCommands.get(
+            interaction.commandName
+        );
 
         if (!command) {
             console.log(
@@ -42,12 +93,12 @@ module.exports = (client) => {
             if (interaction.replied || interaction.deferred) {
                 await interaction.followUp({
                     content: "❌ Une erreur est survenue.",
-                    ephemeral: true,
+                    ephemeral: true
                 }).catch(() => {});
             } else {
                 await interaction.reply({
                     content: "❌ Une erreur est survenue.",
-                    ephemeral: true,
+                    ephemeral: true
                 }).catch(() => {});
             }
         }
